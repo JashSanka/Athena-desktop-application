@@ -1,0 +1,36 @@
+{
+  "name": "athena-proctoring-application",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Athena - Browser-based and desktop proctoring application",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint .",
+    "electron": "electron .",
+    "electron:dev": "vite & electron ."
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JashSanka/Athena-desktop-application.git"
+  },
+  "keywords": [
+    "proctoring",
+    "assessment",
+    "electron",
+    "vite",
+    "examination"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "vite": "^8.3.0"
+  },
+  "devDependencies": {
+    "electron": "^33.4.11",
+    "eslint": "^10.10.0"
+  }
+}

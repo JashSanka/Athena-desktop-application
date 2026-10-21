@@ -12,8 +12,10 @@
   --color-primary-light: #eff6ff;
   --color-warning: #d97706;
   --color-warning-light: #fffbeb;
+  --color-warning-border: #fde68a;
   --color-success: #16a34a;
   --color-success-light: #f0fdf4;
+  --color-success-border: #bbf7d0;
   --color-danger: #dc2626;
   --color-danger-light: #fef2f2;
   --radius-sm: 6px;
@@ -156,6 +158,129 @@ body {
   border: 1px dashed var(--color-border-hover);
 }
 
+/* Permission Checks & Status Indicators */
+.permission-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.permission-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.15rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-subtle);
+  gap: 1rem;
+  transition: border-color 0.15s ease;
+}
+
+.permission-item:hover {
+  border-color: var(--color-border-hover);
+}
+
+.permission-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.permission-label-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.permission-label {
+  font-size: 0.925rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.permission-desc {
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+}
+
+.permission-action-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* Status Pills */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.25rem 0.65rem;
+  border-radius: 9999px;
+  white-space: nowrap;
+}
+
+.status-pill--pending {
+  background-color: var(--color-warning-light);
+  color: var(--color-warning);
+  border: 1px solid var(--color-warning-border);
+}
+
+.status-pill--ready {
+  background-color: var(--color-success-light);
+  color: var(--color-success);
+  border: 1px solid var(--color-success-border);
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.status-pill--pending .status-dot {
+  background-color: var(--color-warning);
+}
+
+.status-pill--ready .status-dot {
+  background-color: var(--color-success);
+}
+
+/* Buttons */
+.btn {
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.5rem 0.95rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.btn-secondary {
+  background-color: var(--color-surface);
+  border-color: var(--color-border);
+  color: var(--color-text-primary);
+}
+
+.btn-secondary:hover {
+  background-color: var(--color-surface-subtle);
+  border-color: var(--color-border-hover);
+}
+
+.btn-secondary.active {
+  background-color: var(--color-primary-light);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
 /* Camera Preview Placeholder */
 .camera-preview-container {
   aspect-ratio: 4 / 3;
@@ -174,11 +299,21 @@ body {
   text-align: center;
 }
 
+.camera-preview-container.camera-active {
+  border-color: #059669;
+  background: #064e3b22;
+}
+
 .camera-preview-icon {
   width: 48px;
   height: 48px;
   margin-bottom: 0.75rem;
   opacity: 0.7;
+}
+
+.camera-preview-container.camera-active .camera-preview-icon {
+  color: #10b981;
+  opacity: 1;
 }
 
 .camera-preview-label {
@@ -192,6 +327,24 @@ body {
   font-size: 0.75rem;
   color: #64748b;
   max-width: 220px;
+}
+
+.camera-preview-status-tag {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.2rem 0.5rem;
+  border-radius: var(--radius-sm);
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid #334155;
+  color: #94a3b8;
+}
+
+.camera-preview-status-tag.active {
+  color: #34d399;
+  border-color: #059669;
 }
 
 /* Examination Area Placeholder */

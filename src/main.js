@@ -1,15 +1,19 @@
-// Athena Minimal Examination Page Setup & Status Placeholders
+// Athena Minimal Examination Page Setup & State Management
 document.addEventListener('DOMContentLoaded', () => {
   const app = document.getElementById('app');
   if (!app) return;
 
-  // Placeholder UI state (hardware APIs deliberately omitted in this phase)
+  // Proctoring UI state (hardware APIs deliberately omitted in this phase)
   const state = {
     cameraGranted: false,
-    fullscreenGranted: false
+    fullscreenGranted: false,
+    examDurationMinutes: 5,
+    launchPlaceholderTriggered: false
   };
 
   function render() {
+    const isReadyToStart = state.cameraGranted && state.fullscreenGranted;
+
     app.innerHTML = `
       <div class="athena-container">
         <!-- 1. Header with Title and Description -->
@@ -78,6 +82,54 @@ document.addEventListener('DOMContentLoaded', () => {
               </div>
             </section>
 
+            <!-- 5 & 6. Exam Rules and Duration Card -->
+            <section class="athena-card" aria-labelledby="rules-heading">
+              <h2 id="rules-heading" class="card-title">
+                <span>Examination Rules & Information</span>
+                <span class="placeholder-badge">Guidelines</span>
+              </h2>
+              <p class="card-subtitle">Review all instructions carefully prior to launching the examination.</p>
+
+              <!-- 6. Exam Duration Display -->
+              <div class="duration-banner">
+                <div class="duration-info">
+                  <svg class="duration-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                  </svg>
+                  <span class="duration-label">Allocated Test Duration:</span>
+                </div>
+                <span class="duration-badge">${state.examDurationMinutes} Minutes (Default)</span>
+              </div>
+
+              <!-- 5. Simple Exam Rules -->
+              <ul class="rules-list">
+                <li class="rule-item">
+                  <span class="rule-number">1</span>
+                  <div class="rule-text">
+                    <strong>Remain in Fullscreen:</strong> Do not minimize the window or exit fullscreen mode. Window state deviations will be recorded.
+                  </div>
+                </li>
+                <li class="rule-item">
+                  <span class="rule-number">2</span>
+                  <div class="rule-text">
+                    <strong>Keep Camera Enabled:</strong> Maintain adequate lighting and stay centered in the camera feed for continuous proctoring.
+                  </div>
+                </li>
+                <li class="rule-item">
+                  <span class="rule-number">3</span>
+                  <div class="rule-text">
+                    <strong>Complete Within Time Limit:</strong> All answers must be submitted prior to the expiration of the 5-minute countdown.
+                  </div>
+                </li>
+                <li class="rule-item">
+                  <span class="rule-number">4</span>
+                  <div class="rule-text">
+                    <strong>No External Applications:</strong> Avoid tab switching, secondary monitors, or unauthorized application usage during the session.
+                  </div>
+                </li>
+              </ul>
+            </section>
+
             <!-- 8. Examination Area Placeholder -->
             <section class="athena-card" aria-labelledby="exam-area-heading">
               <h2 id="exam-area-heading" class="card-title">
@@ -137,6 +189,41 @@ document.addEventListener('DOMContentLoaded', () => {
                 </span>
               </div>
             </section>
+
+            <!-- 7. Start Test Action Card -->
+            <section class="athena-card launch-card" aria-labelledby="start-heading">
+              <h2 id="start-heading" class="card-title">
+                <span>Start Assessment</span>
+              </h2>
+              <p class="card-subtitle">Ensure prerequisites are fulfilled to unlock test session.</p>
+
+              <div class="start-btn-wrap">
+                <button
+                  type="button"
+                  class="btn-start"
+                  id="startTestButton"
+                  ${!isReadyToStart ? 'disabled aria-disabled="true"' : ''}
+                >
+                  <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                  </svg>
+                  <span>Start Test</span>
+                </button>
+
+                <p class="launch-helper-text ${isReadyToStart ? 'ready' : 'warning'}">
+                  ${isReadyToStart
+                    ? 'All requirements satisfied. Test is ready to start.'
+                    : 'Requires both Camera access and Fullscreen mode.'}
+                </p>
+
+                ${state.launchPlaceholderTriggered ? `
+                  <div class="launch-notice-placeholder">
+                    <strong>Launch Triggered (Placeholder):</strong> Active test, live camera proctoring, and countdown timer will initialize here in Phase 2.
+                  </div>
+                ` : ''}
+              </div>
+            </section>
           </aside>
         </div>
 
@@ -152,10 +239,12 @@ document.addEventListener('DOMContentLoaded', () => {
   function bindEvents() {
     const toggleCameraBtn = document.getElementById('toggleCameraButton');
     const toggleFullscreenBtn = document.getElementById('toggleFullscreenButton');
+    const startTestBtn = document.getElementById('startTestButton');
 
     if (toggleCameraBtn) {
       toggleCameraBtn.addEventListener('click', () => {
         state.cameraGranted = !state.cameraGranted;
+        state.launchPlaceholderTriggered = false;
         render();
       });
     }
@@ -163,7 +252,17 @@ document.addEventListener('DOMContentLoaded', () => {
     if (toggleFullscreenBtn) {
       toggleFullscreenBtn.addEventListener('click', () => {
         state.fullscreenGranted = !state.fullscreenGranted;
+        state.launchPlaceholderTriggered = false;
         render();
+      });
+    }
+
+    if (startTestBtn) {
+      startTestBtn.addEventListener('click', () => {
+        if (state.cameraGranted && state.fullscreenGranted) {
+          state.launchPlaceholderTriggered = true;
+          render();
+        }
       });
     }
   }

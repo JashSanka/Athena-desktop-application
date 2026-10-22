@@ -129,8 +129,91 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  function getCameraPreviewTag() {
+    switch (state.cameraState) {
+      case 'granted':
+        return { label: 'Live Camera', className: 'active' };
+      case 'loading':
+        return { label: 'Connecting...', className: 'loading' };
+      case 'denied':
+        return { label: 'Access Denied', className: 'error' };
+      case 'unavailable':
+        return { label: 'Unavailable', className: 'error' };
+      case 'idle':
+      default:
+        return { label: 'Camera Offline', className: '' };
+    }
+  }
+
+  function renderCameraPreviewContent() {
+    if (state.cameraState === 'granted') {
+      return `<video id="cameraVideo" class="camera-video-feed" autoplay playsinline muted></video>`;
+    }
+
+    if (state.cameraState === 'loading') {
+      return `
+        <div class="camera-loading-content">
+          <div class="camera-loading-spinner" aria-hidden="true"></div>
+          <span class="camera-preview-label">Connecting to Webcam...</span>
+          <span class="camera-preview-note">Please allow camera permissions if prompted by your browser.</span>
+        </div>
+      `;
+    }
+
+    if (state.cameraState === 'denied') {
+      return `
+        <div class="camera-error-content camera-error--denied">
+          <div class="camera-error-icon-wrap">
+            <svg class="camera-error-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path>
+            </svg>
+          </div>
+          <span class="camera-preview-label">Camera Access Denied</span>
+          <span class="camera-preview-note">${state.cameraErrorMessage || 'Webcam permission was blocked.'}</span>
+          <button type="button" class="btn btn-retry" id="retryCameraButton">
+            <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+            </svg>
+            <span>Retry Access</span>
+          </button>
+        </div>
+      `;
+    }
+
+    if (state.cameraState === 'unavailable') {
+      return `
+        <div class="camera-error-content camera-error--unavailable">
+          <div class="camera-error-icon-wrap">
+            <svg class="camera-error-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+            </svg>
+          </div>
+          <span class="camera-preview-label">Camera Unavailable</span>
+          <span class="camera-preview-note">${state.cameraErrorMessage || 'No active camera could be detected.'}</span>
+          <button type="button" class="btn btn-retry" id="retryCameraButton">
+            <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+            </svg>
+            <span>Retry Camera</span>
+          </button>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="camera-placeholder-content">
+        <svg class="camera-preview-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+        </svg>
+        <span class="camera-preview-label">Webcam Feed Inactive</span>
+        <span class="camera-preview-note">Click "Allow Camera" below to enable your camera stream</span>
+      </div>
+    `;
+  }
+
   function render() {
     const cameraMeta = getCameraStatusMeta();
+    const previewTag = getCameraPreviewTag();
     const isReadyToStart = state.cameraState === 'granted' && state.fullscreenActive;
 
     app.innerHTML = `
@@ -150,25 +233,15 @@ document.addEventListener('DOMContentLoaded', () => {
         <main class="athena-verification-card">
           <!-- 1. Camera Area -->
           <div class="camera-section">
-            <div class="camera-preview-container ${state.cameraState === 'granted' ? 'camera-active' : ''}" id="cameraPreviewArea">
+            <div class="camera-preview-container ${state.cameraState === 'granted' ? 'camera-active' : ''} ${state.cameraState === 'denied' || state.cameraState === 'unavailable' ? 'camera-error' : ''}" id="cameraPreviewArea">
               <div class="camera-status-overlay">
-                <span class="camera-status-tag ${state.cameraState === 'granted' ? 'active' : ''}">
+                <span class="camera-status-tag ${previewTag.className}">
                   <span class="status-dot"></span>
-                  ${state.cameraState === 'granted' ? 'Live Camera' : 'Camera Offline'}
+                  ${previewTag.label}
                 </span>
               </div>
 
-              ${state.cameraState === 'granted' ? `
-                <video id="cameraVideo" class="camera-video-feed" autoplay playsinline muted></video>
-              ` : `
-                <div class="camera-placeholder-content">
-                  <svg class="camera-preview-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
-                  </svg>
-                  <span class="camera-preview-label">Webcam Feed Inactive</span>
-                  <span class="camera-preview-note">Click "Allow Camera" below to enable your camera stream</span>
-                </div>
-              `}
+              ${renderCameraPreviewContent()}
             </div>
           </div>
 
@@ -275,6 +348,13 @@ document.addEventListener('DOMContentLoaded', () => {
     if (toggleCameraBtn) {
       toggleCameraBtn.addEventListener('click', () => {
         toggleCamera();
+      });
+    }
+
+    const retryCameraBtn = document.getElementById('retryCameraButton');
+    if (retryCameraBtn) {
+      retryCameraBtn.addEventListener('click', () => {
+        requestCamera();
       });
     }
   }

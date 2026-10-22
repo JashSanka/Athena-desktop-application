@@ -1,4 +1,4 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, session } = require('electron');
 const path = require('path');
 
 function createWindow() {
@@ -23,6 +23,23 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // Allow webcam permission requests inside Electron environment
+  if (session.defaultSession) {
+    session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+      if (permission === 'media') {
+        return callback(true);
+      }
+      callback(false);
+    });
+
+    session.defaultSession.setPermissionCheckHandler((webContents, permission) => {
+      if (permission === 'media') {
+        return true;
+      }
+      return false;
+    });
+  }
+
   createWindow();
 
   app.on('activate', () => {

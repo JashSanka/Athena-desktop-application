@@ -10,8 +10,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint .",
+    "test": "node --test tests/**/*.test.js",
     "electron": "electron .",
-    "electron:dev": "vite & electron ."
+    "electron:dev": "NODE_ENV=development vite & sleep 2 && NODE_ENV=development electron ."
   },
   "repository": {
     "type": "git",

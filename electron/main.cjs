@@ -1,28 +1,102 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, session, ipcMain } = require('electron');
 const path = require('path');
 
+let mainWindow = null;
+
 function createWindow() {
-  const win = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 1200,
     height: 850,
     minWidth: 800,
     minHeight: 600,
     webPreferences: {
       nodeIntegration: false,
-      contextIsolation: true
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.cjs')
     }
   });
 
   const devUrl = process.env.VITE_DEV_SERVER_URL || 'http://localhost:5173';
 
   if (process.env.NODE_ENV === 'development') {
-    win.loadURL(devUrl);
+    mainWindow.loadURL(devUrl);
   } else {
-    win.loadFile(path.join(__dirname, '../dist/index.html'));
+    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
+
+  // Notify renderer whenever fullscreen state changes (e.g. user presses Esc or F11)
+  mainWindow.on('enter-full-screen', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('fullscreen:changed', true);
+    }
+  });
+
+  mainWindow.on('leave-full-screen', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('fullscreen:changed', false);
+    }
+  });
+
+  // Also handle when user uses system controls (e.g. green button on macOS)
+  mainWindow.on('enter-html-full-screen', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('fullscreen:changed', true);
+    }
+  });
+
+  mainWindow.on('leave-html-full-screen', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('fullscreen:changed', false);
+    }
+  });
+
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
 }
 
+// IPC Handlers for fullscreen
+ipcMain.handle('fullscreen:enter', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.setFullScreen(true);
+    return true;
+  }
+  return false;
+});
+
+ipcMain.handle('fullscreen:exit', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.setFullScreen(false);
+    return true;
+  }
+  return false;
+});
+
+ipcMain.handle('fullscreen:status', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    return mainWindow.isFullScreen();
+  }
+  return false;
+});
+
 app.whenReady().then(() => {
+  // Allow webcam permission requests inside Electron environment
+  if (session.defaultSession) {
+    session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+      if (permission === 'media') {
+        return callback(true);
+      }
+      callback(false);
+    });
+
+    session.defaultSession.setPermissionCheckHandler((webContents, permission) => {
+      if (permission === 'media') {
+        return true;
+      }
+      return false;
+    });
+  }
+
   createWindow();
 
   app.on('activate', () => {

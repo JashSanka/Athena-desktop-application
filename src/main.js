@@ -130,7 +130,12 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Fullscreen Management
+  // Detect whether we are running inside an Electron window.
+  // In Electron the browser Fullscreen API is unavailable; we use IPC instead.
+  const isElectron = Boolean(window.electronAPI);
+
   function isFullscreenSupported() {
+    if (isElectron) return true; // Electron always supports fullscreen via main process
     return Boolean(
       document.fullscreenEnabled ||
       document.webkitFullscreenEnabled ||
@@ -139,8 +144,10 @@ document.addEventListener('DOMContentLoaded', () => {
     );
   }
 
-  function getActualFullscreenElement() {
-    return (
+  function isActualFullscreenActive() {
+    // In Electron we track state ourselves via IPC events
+    if (isElectron) return state.fullscreenActive;
+    return Boolean(
       document.fullscreenElement ||
       document.webkitFullscreenElement ||
       document.mozFullScreenElement ||
@@ -149,19 +156,27 @@ document.addEventListener('DOMContentLoaded', () => {
     );
   }
 
-  function isActualFullscreenActive() {
-    return Boolean(getActualFullscreenElement());
-  }
-
   async function enterFullscreen() {
+    state.fullscreenErrorMessage = '';
+
+    if (isElectron) {
+      try {
+        await window.electronAPI.enterFullscreen();
+        // State will be updated by the 'fullscreen:changed' IPC event
+      } catch (err) {
+        console.warn('Electron fullscreen entry failed:', err);
+        state.fullscreenErrorMessage = 'Fullscreen request was rejected by the system.';
+        render();
+      }
+      return;
+    }
+
     if (!isFullscreenSupported()) {
       state.fullscreenErrorMessage = 'Fullscreen mode is not supported by your browser.';
       state.fullscreenActive = false;
       render();
       return;
     }
-
-    state.fullscreenErrorMessage = '';
 
     const el = document.documentElement;
     const requestFn =
@@ -188,6 +203,16 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   async function exitFullscreen() {
+    if (isElectron) {
+      try {
+        await window.electronAPI.exitFullscreen();
+        // State will be updated by the 'fullscreen:changed' IPC event
+      } catch (err) {
+        console.warn('Electron fullscreen exit failed:', err);
+      }
+      return;
+    }
+
     if (!isActualFullscreenActive()) return;
 
     const exitFn =
@@ -206,48 +231,60 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   async function toggleFullscreen() {
-    if (isActualFullscreenActive()) {
+    if (state.fullscreenActive) {
       await exitFullscreen();
     } else {
       await enterFullscreen();
     }
   }
 
-  // Detect fullscreen status changes and exits (e.g. user pressed Esc)
-  const fullscreenChangeEvents = [
-    'fullscreenchange',
-    'webkitfullscreenchange',
-    'mozfullscreenchange',
-    'MSFullscreenChange'
-  ];
-
-  fullscreenChangeEvents.forEach((eventName) => {
-    document.addEventListener(eventName, () => {
-      const actuallyActive = isActualFullscreenActive();
-      if (state.fullscreenActive !== actuallyActive) {
-        state.fullscreenActive = actuallyActive;
-        if (actuallyActive) {
-          state.fullscreenErrorMessage = '';
-        }
-        render();
-      }
-    });
-  });
-
-  const fullscreenErrorEvents = [
-    'fullscreenerror',
-    'webkitfullscreenerror',
-    'mozfullscreenerror',
-    'MSFullscreenError'
-  ];
-
-  fullscreenErrorEvents.forEach((eventName) => {
-    document.addEventListener(eventName, () => {
-      state.fullscreenActive = isActualFullscreenActive();
-      state.fullscreenErrorMessage = 'Fullscreen request was rejected by browser permissions.';
+  // Subscribe to fullscreen state changes pushed from Electron main process
+  if (isElectron) {
+    window.electronAPI.onFullscreenChange((isFullscreen) => {
+      state.fullscreenActive = isFullscreen;
+      if (isFullscreen) state.fullscreenErrorMessage = '';
       render();
     });
-  });
+  } else {
+    // Browser: listen for native fullscreen change/error events
+    const fullscreenChangeEvents = [
+      'fullscreenchange',
+      'webkitfullscreenchange',
+      'mozfullscreenchange',
+      'MSFullscreenChange'
+    ];
+
+    fullscreenChangeEvents.forEach((eventName) => {
+      document.addEventListener(eventName, () => {
+        const actuallyActive = Boolean(
+          document.fullscreenElement ||
+          document.webkitFullscreenElement ||
+          document.mozFullScreenElement ||
+          document.msFullscreenElement
+        );
+        if (state.fullscreenActive !== actuallyActive) {
+          state.fullscreenActive = actuallyActive;
+          if (actuallyActive) state.fullscreenErrorMessage = '';
+          render();
+        }
+      });
+    });
+
+    const fullscreenErrorEvents = [
+      'fullscreenerror',
+      'webkitfullscreenerror',
+      'mozfullscreenerror',
+      'MSFullscreenError'
+    ];
+
+    fullscreenErrorEvents.forEach((eventName) => {
+      document.addEventListener(eventName, () => {
+        state.fullscreenActive = false;
+        state.fullscreenErrorMessage = 'Fullscreen request was rejected by browser permissions.';
+        render();
+      });
+    });
+  }
 
   function getFullscreenStatusMeta() {
     if (!isFullscreenSupported()) {

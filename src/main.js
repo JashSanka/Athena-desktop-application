@@ -363,11 +363,58 @@ document.addEventListener('DOMContentLoaded', () => {
     `;
   }
 
+  // Readiness Gating
+  function isCameraReady() {
+    return (
+      state.cameraState === 'granted' &&
+      activeStream !== null &&
+      activeStream.active &&
+      activeStream.getVideoTracks().some((track) => track.readyState === 'live')
+    );
+  }
+
+  function isFullscreenReady() {
+    return isActualFullscreenActive();
+  }
+
+  function isReadyToStart() {
+    return isCameraReady() && isFullscreenReady();
+  }
+
+  function getReadinessHelperText() {
+    const cameraOk = isCameraReady();
+    const fullscreenOk = isFullscreenReady();
+
+    if (cameraOk && fullscreenOk) {
+      return {
+        text: 'All requirements satisfied. Test is ready to start.',
+        className: 'ready'
+      };
+    }
+    if (!cameraOk && !fullscreenOk) {
+      return {
+        text: 'Both active camera feed and fullscreen mode are required to begin.',
+        className: 'warning'
+      };
+    }
+    if (!cameraOk) {
+      return {
+        text: 'Webcam permission and live feed required before starting.',
+        className: 'warning'
+      };
+    }
+    return {
+      text: 'Fullscreen mode must be active to begin the assessment.',
+      className: 'warning'
+    };
+  }
+
   function render() {
     const cameraMeta = getCameraStatusMeta();
     const previewTag = getCameraPreviewTag();
     const fullscreenMeta = getFullscreenStatusMeta();
-    const isReadyToStart = state.cameraState === 'granted' && state.fullscreenActive;
+    const ready = isReadyToStart();
+    const readinessInfo = getReadinessHelperText();
 
     app.innerHTML = `
       <div class="athena-container">
@@ -465,7 +512,7 @@ document.addEventListener('DOMContentLoaded', () => {
               type="button"
               class="btn-start"
               id="startTestButton"
-              ${!isReadyToStart ? 'disabled aria-disabled="true"' : ''}
+              ${!ready ? 'disabled aria-disabled="true"' : ''}
             >
               <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path>
@@ -474,11 +521,24 @@ document.addEventListener('DOMContentLoaded', () => {
               <span>Start Test</span>
             </button>
 
-            <p class="launch-helper-text ${isReadyToStart ? 'ready' : 'warning'}">
-              ${isReadyToStart
-                ? 'All prerequisites fulfilled. Ready to begin your assessment.'
-                : 'Both Camera Permission and Fullscreen Mode are required to start.'}
+            <p class="launch-helper-text ${readinessInfo.className}">
+              ${readinessInfo.text}
             </p>
+
+            ${state.testStarted ? `
+              <div class="test-started-banner" role="alert">
+                <div class="test-started-header">
+                  <span class="status-dot status-dot--pulsing"></span>
+                  <strong>Examination Active</strong>
+                </div>
+                <p class="test-started-text">
+                  Session initialized. Live webcam proctoring and fullscreen monitoring are actively engaged.
+                </p>
+                <button type="button" class="btn btn-secondary btn-sm" id="abandonTestButton">
+                  Abandon Assessment
+                </button>
+              </div>
+            ` : ''}
           </div>
         </main>
 
@@ -518,6 +578,26 @@ document.addEventListener('DOMContentLoaded', () => {
     if (toggleFullscreenBtn) {
       toggleFullscreenBtn.addEventListener('click', () => {
         toggleFullscreen();
+      });
+    }
+
+    const startTestBtn = document.getElementById('startTestButton');
+    if (startTestBtn) {
+      startTestBtn.addEventListener('click', () => {
+        if (isReadyToStart()) {
+          state.testStarted = true;
+          render();
+        }
+      });
+    }
+
+    const abandonTestBtn = document.getElementById('abandonTestButton');
+    if (abandonTestBtn) {
+      abandonTestBtn.addEventListener('click', () => {
+        state.testStarted = false;
+        stopCamera();
+        exitFullscreen();
+        render();
       });
     }
   }

@@ -129,6 +129,158 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // Fullscreen Management
+  function isFullscreenSupported() {
+    return Boolean(
+      document.fullscreenEnabled ||
+      document.webkitFullscreenEnabled ||
+      document.mozFullScreenEnabled ||
+      document.msFullscreenEnabled
+    );
+  }
+
+  function getActualFullscreenElement() {
+    return (
+      document.fullscreenElement ||
+      document.webkitFullscreenElement ||
+      document.mozFullScreenElement ||
+      document.msFullscreenElement ||
+      null
+    );
+  }
+
+  function isActualFullscreenActive() {
+    return Boolean(getActualFullscreenElement());
+  }
+
+  async function enterFullscreen() {
+    if (!isFullscreenSupported()) {
+      state.fullscreenErrorMessage = 'Fullscreen mode is not supported by your browser.';
+      state.fullscreenActive = false;
+      render();
+      return;
+    }
+
+    state.fullscreenErrorMessage = '';
+
+    const el = document.documentElement;
+    const requestFn =
+      el.requestFullscreen ||
+      el.webkitRequestFullscreen ||
+      el.mozRequestFullScreen ||
+      el.msRequestFullscreen;
+
+    if (!requestFn) {
+      state.fullscreenErrorMessage = 'Fullscreen API is unavailable in this environment.';
+      state.fullscreenActive = false;
+      render();
+      return;
+    }
+
+    try {
+      await requestFn.call(el);
+    } catch (err) {
+      console.warn('Fullscreen entry rejected:', err);
+      state.fullscreenActive = isActualFullscreenActive();
+      state.fullscreenErrorMessage = 'Fullscreen request was rejected by browser or system.';
+      render();
+    }
+  }
+
+  async function exitFullscreen() {
+    if (!isActualFullscreenActive()) return;
+
+    const exitFn =
+      document.exitFullscreen ||
+      document.webkitExitFullscreen ||
+      document.mozCancelFullScreen ||
+      document.msExitFullscreen;
+
+    if (exitFn) {
+      try {
+        await exitFn.call(document);
+      } catch (err) {
+        console.warn('Exit fullscreen error:', err);
+      }
+    }
+  }
+
+  async function toggleFullscreen() {
+    if (isActualFullscreenActive()) {
+      await exitFullscreen();
+    } else {
+      await enterFullscreen();
+    }
+  }
+
+  // Detect fullscreen status changes and exits (e.g. user pressed Esc)
+  const fullscreenChangeEvents = [
+    'fullscreenchange',
+    'webkitfullscreenchange',
+    'mozfullscreenchange',
+    'MSFullscreenChange'
+  ];
+
+  fullscreenChangeEvents.forEach((eventName) => {
+    document.addEventListener(eventName, () => {
+      const actuallyActive = isActualFullscreenActive();
+      if (state.fullscreenActive !== actuallyActive) {
+        state.fullscreenActive = actuallyActive;
+        if (actuallyActive) {
+          state.fullscreenErrorMessage = '';
+        }
+        render();
+      }
+    });
+  });
+
+  const fullscreenErrorEvents = [
+    'fullscreenerror',
+    'webkitfullscreenerror',
+    'mozfullscreenerror',
+    'MSFullscreenError'
+  ];
+
+  fullscreenErrorEvents.forEach((eventName) => {
+    document.addEventListener(eventName, () => {
+      state.fullscreenActive = isActualFullscreenActive();
+      state.fullscreenErrorMessage = 'Fullscreen request was rejected by browser permissions.';
+      render();
+    });
+  });
+
+  function getFullscreenStatusMeta() {
+    if (!isFullscreenSupported()) {
+      return {
+        label: 'Not Supported',
+        pillClass: 'status-pill--error',
+        dotClass: 'status-dot--error'
+      };
+    }
+    if (state.fullscreenActive) {
+      return {
+        label: 'Fullscreen Active',
+        pillClass: 'status-pill--ready',
+        dotClass: 'status-dot--ready'
+      };
+    }
+    return {
+      label: 'Windowed Mode',
+      pillClass: 'status-pill--pending',
+      dotClass: 'status-dot--pending'
+    };
+  }
+
+  function getFullscreenButtonLabel() {
+    if (!isFullscreenSupported()) {
+      return 'Fullscreen Unavailable';
+    }
+    if (state.fullscreenActive) {
+      return 'Exit Fullscreen';
+    }
+    return 'Enable Fullscreen';
+  }
+
   function getCameraPreviewTag() {
     switch (state.cameraState) {
       case 'granted':
@@ -214,6 +366,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function render() {
     const cameraMeta = getCameraStatusMeta();
     const previewTag = getCameraPreviewTag();
+    const fullscreenMeta = getFullscreenStatusMeta();
     const isReadyToStart = state.cameraState === 'granted' && state.fullscreenActive;
 
     app.innerHTML = `
@@ -286,19 +439,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
                 <div class="permission-meta">
                   <h2 class="permission-name">Fullscreen Permission</h2>
-                  <span class="status-pill ${state.fullscreenActive ? 'status-pill--ready' : 'status-pill--pending'}" id="fullscreenStatusBadge">
-                    <span class="status-dot"></span>
-                    ${state.fullscreenActive ? 'Fullscreen Active' : 'Windowed Mode'}
+                  <span class="status-pill ${fullscreenMeta.pillClass}" id="fullscreenStatusBadge">
+                    <span class="status-dot ${fullscreenMeta.dotClass}"></span>
+                    ${fullscreenMeta.label}
                   </span>
                 </div>
               </div>
-              <p class="permission-description">Assessment must be conducted in full screen mode.</p>
+              <p class="permission-description ${state.fullscreenErrorMessage ? 'error' : ''}">
+                ${state.fullscreenErrorMessage || (state.fullscreenActive ? 'Fullscreen mode is actively engaged.' : 'Assessment must be conducted in full screen mode to prevent multi-tasking.')}
+              </p>
               <button
                 type="button"
                 class="btn btn-secondary ${state.fullscreenActive ? 'active' : ''}"
                 id="toggleFullscreenButton"
+                ${!isFullscreenSupported() ? 'disabled' : ''}
               >
-                ${state.fullscreenActive ? 'Exit Fullscreen' : 'Enable Fullscreen'}
+                ${getFullscreenButtonLabel()}
               </button>
             </div>
           </div>
@@ -355,6 +511,13 @@ document.addEventListener('DOMContentLoaded', () => {
     if (retryCameraBtn) {
       retryCameraBtn.addEventListener('click', () => {
         requestCamera();
+      });
+    }
+
+    const toggleFullscreenBtn = document.getElementById('toggleFullscreenButton');
+    if (toggleFullscreenBtn) {
+      toggleFullscreenBtn.addEventListener('click', () => {
+        toggleFullscreen();
       });
     }
   }

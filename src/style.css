@@ -374,6 +374,10 @@ body {
   margin-top: -0.25rem;
 }
 
+.permission-description.error {
+  color: var(--color-danger);
+}
+
 /* Status Pills */
 .status-pill {
   display: inline-flex;

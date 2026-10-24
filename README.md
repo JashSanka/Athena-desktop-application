@@ -61,6 +61,88 @@ The focused UI provides a streamlined candidate verification interface containin
 
 ---
 
+## MCQ Examination Module
+
+Once the Start Test button is activated (after both camera and fullscreen requirements are met), Athena presents a 10-question multiple-choice examination session.
+
+### Question Structure
+
+Each question in the dataset (`src/questions.js`) has the following shape:
+
+```js
+{
+  id: 1,                              // 1-based display index
+  question: "Question statement",     // Full question text
+  options: ["A", "B", "C", "D"],      // Exactly 4 answer options
+  correctAnswer: 0                    // 0-based index of the correct option
+}
+```
+
+The 10 sample questions cover fundamental topics: HTML5, CSS, JavaScript, Operating Systems, HTTP, Data Structures, Databases, Networking, Algorithms, and Browser Security.
+
+### Navigation & Selection
+
+- **Previous / Next** buttons navigate between questions.
+- **Question Navigation Grid** (numbered pills 1–10) allows direct jump to any question.
+- Answered questions are highlighted green in the navigation grid; the current question is highlighted blue.
+- Answer selections persist when navigating between questions (stored in `state.selectedAnswers` keyed by 0-based question index).
+- **Answered / Unanswered counts** are displayed in real time in the exam header.
+
+---
+
+## Timer Behaviour
+
+The countdown timer is implemented using a **deadline-based approach** rather than a simple decrementing counter:
+
+```
+deadline = Date.now() + durationSeconds × 1000
+remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000))
+```
+
+This prevents timer drift if the browser throttles JavaScript intervals (e.g., when the tab is backgrounded).
+
+| Property | Value |
+| :--- | :--- |
+| Default duration | 5 minutes (300 seconds) — configurable via `DEFAULT_EXAM_DURATION_SECONDS` in `src/examUtils.js` |
+| Display format | `MM:SS` (e.g., `04:59`) |
+| Tick rate | Every 250 ms for responsive display without battery cost |
+| Warning threshold | Timer card turns red when ≤ 60 seconds remain |
+| Timeout action | Test is automatically completed, camera stream is released, fullscreen is exited, results are shown |
+| Completion guard | `state.isCompleted` flag ensures automatic completion fires exactly once |
+
+---
+
+## Scoring
+
+Scoring is calculated client-side by [`calculateScore`](src/examUtils.js) at exam completion:
+
+$$\text{Score} = \frac{\text{Correct Answers}}{\text{Total Questions}} \times 100\%$$
+
+| Metric | Description |
+| :--- | :--- |
+| **Correct count** | Options matching each question's `correctAnswer` index |
+| **Incorrect count** | Answered questions that did not match the correct answer |
+| **Unanswered count** | Questions with no selection recorded |
+| **Invariant** | `correct + incorrect + unanswered = 10` always holds |
+
+Score tier colours shown on the results screen:
+- 🟢 **Green** — ≥ 70%
+- 🟡 **Amber** — 40–69%
+- 🔴 **Red** — < 40%
+
+---
+
+## End Test Flow
+
+| Trigger | Behaviour |
+| :--- | :--- |
+| **End Test button** | Visible at all times during the exam. Clicking shows a `window.confirm()` dialog with the current answered/unanswered counts. If confirmed, the exam is finalised immediately. |
+| **Timer expiry** | Exam is completed automatically without a confirmation dialog. |
+| **Post-completion** | Timer is cleared, camera stream is released (`track.stop()`), fullscreen is exited, question interaction is disabled. |
+| **Results screen** | Displays: completion message (manual or timeout), score fraction, percentage, correct/incorrect/unanswered breakdown. |
+
+---
+
 ## Permission Behavior
 
 ### 1. Camera Access (`getUserMedia`)
@@ -143,3 +225,20 @@ The test suite covers:
 - Track cleanup verification upon session abandonment.
 - Fullscreen truthiness and exit detection.
 - Start Test gating logic and dynamic invalidation when either requirement is lost.
+- **Timer behaviour:** `formatTime` formatting (MM:SS), `calculateRemainingSeconds` deadline-based calculation, edge cases for 0, negative, and non-number inputs.
+- **Scoring:** `calculateScore` for all-correct, all-wrong, partial, and no-answer scenarios; invariant check that `correct + incorrect + unanswered === total`.
+- **Answer counts:** `getAnswerCounts` with 0 answered, fully answered, and partial selections.
+
+---
+
+## Limitations
+
+This is a **local demonstration only**, not a production examination system:
+
+- **No backend or server enforcement.** All scoring and timer logic runs in the browser. A technically-inclined candidate could manipulate client-side state via browser DevTools.
+- **No question shuffling or randomisation.** The 10 sample MCQs are always presented in the same order.
+- **No login, authentication, or candidate identification.** Athena does not collect usernames, session tokens, or any personal data.
+- **No answer persistence across page reloads.** Refreshing the page resets the entire session including answers and the timer.
+- **Timer uses `setInterval` at 250 ms.** Browsers may throttle background tabs, but since remaining time is computed from a fixed deadline (`Date.now()`-based), displayed seconds stay accurate even if ticks are delayed.
+- **No screenshot or screen recording.** The proctoring in this version is limited to a live camera preview pip; no frames are captured or stored.
+- **Confirm dialog is browser-native.** The End Test confirmation uses `window.confirm()`. In some automation or testing contexts this may be auto-dismissed.

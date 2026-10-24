@@ -1,4 +1,7 @@
 // Athena Minimal Examination Page Setup & State Management
+import { QUESTIONS } from './questions.js';
+import { getAnswerCounts } from './examUtils.js';
+
 document.addEventListener('DOMContentLoaded', () => {
   const app = document.getElementById('app');
   if (!app) return;
@@ -11,7 +14,9 @@ document.addEventListener('DOMContentLoaded', () => {
     fullscreenActive: false,
     fullscreenSupported: true,
     fullscreenErrorMessage: '',
-    testStarted: false
+    testStarted: false,
+    currentQuestionIndex: 0,
+    selectedAnswers: {}
   };
 
   let activeStream = null;
@@ -446,14 +451,14 @@ document.addEventListener('DOMContentLoaded', () => {
     };
   }
 
-  function render() {
+  function renderVerificationView() {
     const cameraMeta = getCameraStatusMeta();
     const previewTag = getCameraPreviewTag();
     const fullscreenMeta = getFullscreenStatusMeta();
     const ready = isReadyToStart();
     const readinessInfo = getReadinessHelperText();
 
-    app.innerHTML = `
+    return `
       <div class="athena-container">
         <!-- Header -->
         <header class="athena-header">
@@ -561,21 +566,6 @@ document.addEventListener('DOMContentLoaded', () => {
             <p class="launch-helper-text ${readinessInfo.className}">
               ${readinessInfo.text}
             </p>
-
-            ${state.testStarted ? `
-              <div class="test-started-banner" role="alert">
-                <div class="test-started-header">
-                  <span class="status-dot status-dot--pulsing"></span>
-                  <strong>Examination Active</strong>
-                </div>
-                <p class="test-started-text">
-                  Session initialized. Live webcam proctoring and fullscreen monitoring are actively engaged.
-                </p>
-                <button type="button" class="btn btn-secondary btn-sm" id="abandonTestButton">
-                  Abandon Assessment
-                </button>
-              </div>
-            ` : ''}
           </div>
         </main>
 
@@ -584,6 +574,162 @@ document.addEventListener('DOMContentLoaded', () => {
         </footer>
       </div>
     `;
+  }
+
+  function renderExamView() {
+    const { answeredCount, unansweredCount, totalQuestions } = getAnswerCounts(QUESTIONS, state.selectedAnswers);
+    const currentQIndex = state.currentQuestionIndex;
+    const currentQ = QUESTIONS[currentQIndex];
+    const progressPercent = Math.round(((currentQIndex + 1) / totalQuestions) * 100);
+    const selectedOption = state.selectedAnswers[currentQIndex];
+    const optionLetters = ['A', 'B', 'C', 'D'];
+
+    return `
+      <div class="athena-container exam-container">
+        <!-- Examination Header with Brand, Timer & Live Camera Feed -->
+        <header class="exam-header-bar">
+          <div class="exam-header-brand">
+            <span class="athena-badge">Athena Examination</span>
+            <span class="exam-mode-title">General Knowledge Assessment</span>
+          </div>
+
+          <div class="exam-header-status">
+            <!-- Countdown Timer Display -->
+            <div class="exam-timer-card" id="examTimerBadge" aria-live="polite">
+              <div class="exam-timer-icon-wrap" aria-hidden="true">
+                <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+              </div>
+              <div class="exam-timer-meta">
+                <span class="exam-timer-label">Time Remaining</span>
+                <span class="exam-timer-digits" id="timerDigits">05:00</span>
+              </div>
+            </div>
+
+            <!-- Proctoring Live Camera Preview -->
+            <div class="exam-camera-pip" id="examCameraPreview" title="Active Proctoring Webcam Preview">
+              <video id="cameraVideo" class="camera-video-feed" autoplay playsinline muted></video>
+              <div class="camera-pip-badge">
+                <span class="status-dot status-dot--pulsing"></span>
+                <span>Proctoring</span>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <!-- Main Examination Card -->
+        <main class="exam-card">
+          <!-- Question Meta Header: Indicator, Counts & Progress Bar -->
+          <div class="exam-meta-header">
+            <div class="exam-meta-top">
+              <span class="question-indicator-badge">Question ${currentQIndex + 1} of ${totalQuestions}</span>
+              <div class="exam-counts-group">
+                <span class="count-pill count-pill--answered">
+                  <span class="count-pill-dot count-pill-dot--answered"></span>
+                  Answered: <strong>${answeredCount}</strong>
+                </span>
+                <span class="count-pill count-pill--unanswered">
+                  <span class="count-pill-dot count-pill-dot--unanswered"></span>
+                  Unanswered: <strong>${unansweredCount}</strong>
+                </span>
+              </div>
+            </div>
+
+            <div class="exam-progress-track" role="progressbar" aria-valuenow="${currentQIndex + 1}" aria-valuemin="1" aria-valuemax="${totalQuestions}">
+              <div class="exam-progress-bar" style="width: ${progressPercent}%;"></div>
+            </div>
+
+            <!-- Question Navigation Pills -->
+            <div class="question-nav-grid" aria-label="Question Navigation">
+              ${QUESTIONS.map((q, idx) => {
+                const isCurrent = idx === currentQIndex;
+                const isAnswered = state.selectedAnswers[idx] !== undefined && state.selectedAnswers[idx] !== null;
+                return `
+                  <button
+                    type="button"
+                    class="question-nav-pill ${isCurrent ? 'active' : ''} ${isAnswered ? 'answered' : ''}"
+                    data-nav-index="${idx}"
+                    aria-label="Question ${idx + 1} ${isAnswered ? '(Answered)' : '(Unanswered)'}"
+                  >
+                    ${idx + 1}
+                  </button>
+                `;
+              }).join('')}
+            </div>
+          </div>
+
+          <!-- Question Content -->
+          <div class="exam-question-body">
+            <div class="exam-question-statement">
+              <span class="question-statement-num">${currentQ.id}.</span>
+              <h2 class="question-statement-text">${currentQ.question}</h2>
+            </div>
+
+            <div class="exam-options-list" role="radiogroup" aria-label="Answer options">
+              ${currentQ.options.map((optText, optIdx) => {
+                const isSelected = selectedOption === optIdx;
+                return `
+                  <label class="exam-option-card ${isSelected ? 'selected' : ''}" for="option_${currentQIndex}_${optIdx}">
+                    <input
+                      type="radio"
+                      id="option_${currentQIndex}_${optIdx}"
+                      name="mcqOption"
+                      value="${optIdx}"
+                      class="exam-option-radio"
+                      ${isSelected ? 'checked' : ''}
+                    />
+                    <span class="option-indicator">${optionLetters[optIdx]}</span>
+                    <span class="option-text">${optText}</span>
+                  </label>
+                `;
+              }).join('')}
+            </div>
+          </div>
+
+          <!-- Exam Action Controls: Previous & Next -->
+          <footer class="exam-card-footer">
+            <div class="exam-nav-actions">
+              <button
+                type="button"
+                class="btn btn-secondary exam-nav-btn"
+                id="prevQuestionButton"
+                ${currentQIndex === 0 ? 'disabled' : ''}
+              >
+                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+                </svg>
+                <span>Previous</span>
+              </button>
+
+              <button
+                type="button"
+                class="btn btn-primary exam-nav-btn"
+                id="nextQuestionButton"
+                ${currentQIndex === totalQuestions - 1 ? 'disabled' : ''}
+              >
+                <span>Next</span>
+                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                </svg>
+              </button>
+            </div>
+          </footer>
+        </main>
+
+        <footer class="athena-footer">
+          Athena Proctoring System &bull; Active Examination Session
+        </footer>
+      </div>
+    `;
+  }
+
+  function render() {
+    if (!state.testStarted) {
+      app.innerHTML = renderVerificationView();
+    } else {
+      app.innerHTML = renderExamView();
+    }
 
     if (state.cameraState === 'granted' && activeStream) {
       const videoEl = document.getElementById('cameraVideo');
@@ -597,44 +743,77 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function bindEvents() {
-    const toggleCameraBtn = document.getElementById('toggleCameraButton');
-    if (toggleCameraBtn) {
-      toggleCameraBtn.addEventListener('click', () => {
-        toggleCamera();
-      });
-    }
+    if (!state.testStarted) {
+      const toggleCameraBtn = document.getElementById('toggleCameraButton');
+      if (toggleCameraBtn) {
+        toggleCameraBtn.addEventListener('click', () => {
+          toggleCamera();
+        });
+      }
 
-    const retryCameraBtn = document.getElementById('retryCameraButton');
-    if (retryCameraBtn) {
-      retryCameraBtn.addEventListener('click', () => {
-        requestCamera();
-      });
-    }
+      const retryCameraBtn = document.getElementById('retryCameraButton');
+      if (retryCameraBtn) {
+        retryCameraBtn.addEventListener('click', () => {
+          requestCamera();
+        });
+      }
 
-    const toggleFullscreenBtn = document.getElementById('toggleFullscreenButton');
-    if (toggleFullscreenBtn) {
-      toggleFullscreenBtn.addEventListener('click', () => {
-        toggleFullscreen();
-      });
-    }
+      const toggleFullscreenBtn = document.getElementById('toggleFullscreenButton');
+      if (toggleFullscreenBtn) {
+        toggleFullscreenBtn.addEventListener('click', () => {
+          toggleFullscreen();
+        });
+      }
 
-    const startTestBtn = document.getElementById('startTestButton');
-    if (startTestBtn) {
-      startTestBtn.addEventListener('click', () => {
-        if (isReadyToStart()) {
-          state.testStarted = true;
+      const startTestBtn = document.getElementById('startTestButton');
+      if (startTestBtn) {
+        startTestBtn.addEventListener('click', () => {
+          if (isReadyToStart()) {
+            state.testStarted = true;
+            render();
+          }
+        });
+      }
+    } else {
+      // Examination event handlers
+      const prevBtn = document.getElementById('prevQuestionButton');
+      if (prevBtn) {
+        prevBtn.addEventListener('click', () => {
+          if (state.currentQuestionIndex > 0) {
+            state.currentQuestionIndex--;
+            render();
+          }
+        });
+      }
+
+      const nextBtn = document.getElementById('nextQuestionButton');
+      if (nextBtn) {
+        nextBtn.addEventListener('click', () => {
+          if (state.currentQuestionIndex < QUESTIONS.length - 1) {
+            state.currentQuestionIndex++;
+            render();
+          }
+        });
+      }
+
+      const optionRadios = document.querySelectorAll('input[name="mcqOption"]');
+      optionRadios.forEach((radio) => {
+        radio.addEventListener('change', (e) => {
+          const optIdx = parseInt(e.target.value, 10);
+          state.selectedAnswers[state.currentQuestionIndex] = optIdx;
           render();
-        }
+        });
       });
-    }
 
-    const abandonTestBtn = document.getElementById('abandonTestButton');
-    if (abandonTestBtn) {
-      abandonTestBtn.addEventListener('click', () => {
-        state.testStarted = false;
-        stopCamera();
-        exitFullscreen();
-        render();
+      const navPills = document.querySelectorAll('button[data-nav-index]');
+      navPills.forEach((pill) => {
+        pill.addEventListener('click', () => {
+          const idx = parseInt(pill.getAttribute('data-nav-index'), 10);
+          if (!isNaN(idx) && idx >= 0 && idx < QUESTIONS.length) {
+            state.currentQuestionIndex = idx;
+            render();
+          }
+        });
       });
     }
   }

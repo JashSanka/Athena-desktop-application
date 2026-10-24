@@ -4,6 +4,11 @@
  */
 
 /**
+ * Default examination duration: 5 minutes (300 seconds)
+ */
+export const DEFAULT_EXAM_DURATION_SECONDS = 5 * 60;
+
+/**
  * Calculates answered and unanswered question counts.
  * @param {Array} questions - Array of question objects
  * @param {Object} selectedAnswers - Map of questionIndex -> selectedOptionIndex

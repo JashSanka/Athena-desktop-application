@@ -1,6 +1,12 @@
 // Athena Minimal Examination Page Setup & State Management
 import { QUESTIONS } from './questions.js';
-import { getAnswerCounts } from './examUtils.js';
+import {
+  DEFAULT_EXAM_DURATION_SECONDS,
+  getAnswerCounts,
+  formatTime,
+  calculateRemainingSeconds,
+  calculateScore
+} from './examUtils.js';
 
 document.addEventListener('DOMContentLoaded', () => {
   const app = document.getElementById('app');
@@ -16,10 +22,82 @@ document.addEventListener('DOMContentLoaded', () => {
     fullscreenErrorMessage: '',
     testStarted: false,
     currentQuestionIndex: 0,
-    selectedAnswers: {}
+    selectedAnswers: {},
+    examDurationSeconds: DEFAULT_EXAM_DURATION_SECONDS,
+    examDeadline: null,
+    examRemainingSeconds: DEFAULT_EXAM_DURATION_SECONDS,
+    isCompleted: false,
+    completionReason: null
   };
 
   let activeStream = null;
+  let timerInterval = null;
+
+  function stopExamTimer() {
+    if (timerInterval) {
+      clearInterval(timerInterval);
+      timerInterval = null;
+    }
+  }
+
+  function startExamTimer(durationSeconds = state.examDurationSeconds) {
+    stopExamTimer();
+    state.examDeadline = Date.now() + durationSeconds * 1000;
+    state.examRemainingSeconds = calculateRemainingSeconds(state.examDeadline);
+    state.isCompleted = false;
+
+    timerInterval = setInterval(() => {
+      if (state.isCompleted) {
+        stopExamTimer();
+        return;
+      }
+
+      const remaining = calculateRemainingSeconds(state.examDeadline);
+      state.examRemainingSeconds = remaining;
+
+      if (remaining <= 0) {
+        stopExamTimer();
+        handleExamTimeout();
+      } else {
+        updateTimerDisplay(remaining);
+      }
+    }, 250);
+  }
+
+  function updateTimerDisplay(remainingSeconds) {
+    const digitsEl = document.getElementById('timerDigits');
+    if (digitsEl) {
+      digitsEl.textContent = formatTime(remainingSeconds);
+    }
+    const timerBadge = document.getElementById('examTimerBadge');
+    if (timerBadge) {
+      if (remainingSeconds <= 60) {
+        timerBadge.classList.add('timer-warning');
+      } else {
+        timerBadge.classList.remove('timer-warning');
+      }
+    }
+  }
+
+  function handleExamTimeout() {
+    if (state.isCompleted) return; // Ensure automatic completion happens only once
+    state.isCompleted = true;
+    state.completionReason = 'timeout';
+    stopExamTimer();
+    stopCamera();
+    exitFullscreen();
+    render();
+  }
+
+  function endTestManually() {
+    if (state.isCompleted) return;
+    state.isCompleted = true;
+    state.completionReason = 'manual';
+    stopExamTimer();
+    stopCamera();
+    exitFullscreen();
+    render();
+  }
 
   function onTrackEnded() {
     stopCamera();
@@ -90,9 +168,15 @@ document.addEventListener('DOMContentLoaded', () => {
     state.cameraErrorMessage = '';
   }
 
-  // Ensure webcam tracks are released if page/exam flow is abandoned or unloaded
-  window.addEventListener('beforeunload', () => stopCamera());
-  window.addEventListener('pagehide', () => stopCamera());
+  // Ensure webcam tracks and exam timers are released if page/exam flow is abandoned or unloaded
+  window.addEventListener('beforeunload', () => {
+    stopCamera();
+    stopExamTimer();
+  });
+  window.addEventListener('pagehide', () => {
+    stopCamera();
+    stopExamTimer();
+  });
 
   function toggleCamera() {
     if (state.cameraState === 'granted') {
@@ -595,7 +679,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
           <div class="exam-header-status">
             <!-- Countdown Timer Display -->
-            <div class="exam-timer-card" id="examTimerBadge" aria-live="polite">
+            <div class="exam-timer-card ${state.examRemainingSeconds <= 60 ? 'timer-warning' : ''}" id="examTimerBadge" aria-live="polite">
               <div class="exam-timer-icon-wrap" aria-hidden="true">
                 <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
@@ -603,7 +687,7 @@ document.addEventListener('DOMContentLoaded', () => {
               </div>
               <div class="exam-timer-meta">
                 <span class="exam-timer-label">Time Remaining</span>
-                <span class="exam-timer-digits" id="timerDigits">05:00</span>
+                <span class="exam-timer-digits" id="timerDigits">${formatTime(state.examRemainingSeconds)}</span>
               </div>
             </div>
 
@@ -651,6 +735,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     class="question-nav-pill ${isCurrent ? 'active' : ''} ${isAnswered ? 'answered' : ''}"
                     data-nav-index="${idx}"
                     aria-label="Question ${idx + 1} ${isAnswered ? '(Answered)' : '(Unanswered)'}"
+                    ${state.isCompleted ? 'disabled' : ''}
                   >
                     ${idx + 1}
                   </button>
@@ -678,6 +763,7 @@ document.addEventListener('DOMContentLoaded', () => {
                       value="${optIdx}"
                       class="exam-option-radio"
                       ${isSelected ? 'checked' : ''}
+                      ${state.isCompleted ? 'disabled' : ''}
                     />
                     <span class="option-indicator">${optionLetters[optIdx]}</span>
                     <span class="option-text">${optText}</span>
@@ -687,14 +773,14 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
           </div>
 
-          <!-- Exam Action Controls: Previous & Next -->
+          <!-- Exam Action Controls: Previous, End Test & Next -->
           <footer class="exam-card-footer">
             <div class="exam-nav-actions">
               <button
                 type="button"
                 class="btn btn-secondary exam-nav-btn"
                 id="prevQuestionButton"
-                ${currentQIndex === 0 ? 'disabled' : ''}
+                ${currentQIndex === 0 || state.isCompleted ? 'disabled' : ''}
               >
                 <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
@@ -704,9 +790,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
               <button
                 type="button"
+                class="btn btn-danger exam-nav-btn exam-end-btn"
+                id="endTestButton"
+                ${state.isCompleted ? 'disabled' : ''}
+              >
+                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10h6v4H9z"></path>
+                </svg>
+                <span>End Test</span>
+              </button>
+
+              <button
+                type="button"
                 class="btn btn-primary exam-nav-btn"
                 id="nextQuestionButton"
-                ${currentQIndex === totalQuestions - 1 ? 'disabled' : ''}
+                ${currentQIndex === totalQuestions - 1 || state.isCompleted ? 'disabled' : ''}
               >
                 <span>Next</span>
                 <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -724,9 +823,92 @@ document.addEventListener('DOMContentLoaded', () => {
     `;
   }
 
+  function renderResultsView() {
+    const result = calculateScore(QUESTIONS, state.selectedAnswers);
+    const timeoutOccurred = state.completionReason === 'timeout';
+    const percentClass = result.percentage >= 70 ? 'result-score--pass' : result.percentage >= 40 ? 'result-score--partial' : 'result-score--fail';
+
+    return `
+      <div class="athena-container exam-container">
+        <header class="exam-header-bar">
+          <div class="exam-header-brand">
+            <span class="athena-badge">Athena Examination</span>
+            <span class="exam-mode-title">Assessment Complete</span>
+          </div>
+        </header>
+
+        <main class="exam-card results-card">
+          <div class="results-header">
+            <div class="results-icon-wrap ${timeoutOccurred ? 'results-icon--timeout' : 'results-icon--done'}">
+              ${timeoutOccurred
+                ? `<svg width="32" height="32" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                   </svg>`
+                : `<svg width="32" height="32" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                   </svg>`}
+            </div>
+            <div>
+              <h2 class="results-title">
+                ${timeoutOccurred ? 'Time Expired — Assessment Ended Automatically' : 'Examination Submitted Successfully'}
+              </h2>
+              <p class="results-subtitle">
+                ${timeoutOccurred
+                  ? 'Your 5-minute time limit has been reached. The test was automatically completed and scored below.'
+                  : 'Your answers have been recorded. Your score is displayed below.'}
+              </p>
+            </div>
+          </div>
+
+          <div class="results-score-row">
+            <div class="results-score-card ${percentClass}">
+              <span class="results-score-label">Your Score</span>
+              <span class="results-score-value">${result.correctCount} / ${result.totalQuestions}</span>
+              <span class="results-score-pct">${result.percentage}%</span>
+            </div>
+          </div>
+
+          <div class="results-breakdown">
+            <div class="result-stat result-stat--correct">
+              <span class="result-stat-icon">✓</span>
+              <div class="result-stat-body">
+                <span class="result-stat-label">Correct Answers</span>
+                <span class="result-stat-value">${result.correctCount}</span>
+              </div>
+            </div>
+            <div class="result-stat result-stat--incorrect">
+              <span class="result-stat-icon">✗</span>
+              <div class="result-stat-body">
+                <span class="result-stat-label">Incorrect Answers</span>
+                <span class="result-stat-value">${result.incorrectCount}</span>
+              </div>
+            </div>
+            <div class="result-stat result-stat--unanswered">
+              <span class="result-stat-icon">—</span>
+              <div class="result-stat-body">
+                <span class="result-stat-label">Unanswered</span>
+                <span class="result-stat-value">${result.unansweredCount}</span>
+              </div>
+            </div>
+          </div>
+
+          <p class="results-disclaimer">
+            This is a local demo examination. Scores are calculated client-side only and are not transmitted or stored anywhere.
+          </p>
+        </main>
+
+        <footer class="athena-footer">
+          Athena Proctoring System &bull; Session Ended
+        </footer>
+      </div>
+    `;
+  }
+
   function render() {
     if (!state.testStarted) {
       app.innerHTML = renderVerificationView();
+    } else if (state.isCompleted) {
+      app.innerHTML = renderResultsView();
     } else {
       app.innerHTML = renderExamView();
     }
@@ -770,11 +952,18 @@ document.addEventListener('DOMContentLoaded', () => {
         startTestBtn.addEventListener('click', () => {
           if (isReadyToStart()) {
             state.testStarted = true;
+            state.isCompleted = false;
+            state.completionReason = null;
+            startExamTimer();
             render();
           }
         });
       }
     } else {
+      if (state.isCompleted) {
+        return; // Stop further question interaction; results view has no interactive exam controls
+      }
+
       // Examination event handlers
       const prevBtn = document.getElementById('prevQuestionButton');
       if (prevBtn) {
@@ -792,6 +981,26 @@ document.addEventListener('DOMContentLoaded', () => {
           if (state.currentQuestionIndex < QUESTIONS.length - 1) {
             state.currentQuestionIndex++;
             render();
+          }
+        });
+      }
+
+      // End Test button: show a native confirm dialog, then finalise if confirmed
+      const endTestBtn = document.getElementById('endTestButton');
+      if (endTestBtn) {
+        endTestBtn.addEventListener('click', () => {
+          if (state.isCompleted) return;
+          const { answeredCount, unansweredCount } = getAnswerCounts(QUESTIONS, state.selectedAnswers);
+          const confirmMsg = [
+            'Are you sure you want to end the test now?',
+            '',
+            `  Answered : ${answeredCount} of ${QUESTIONS.length}`,
+            `  Unanswered: ${unansweredCount} of ${QUESTIONS.length}`,
+            '',
+            'This action cannot be undone. Your current answers will be scored immediately.'
+          ].join('\n');
+          if (window.confirm(confirmMsg)) {
+            endTestManually();
           }
         });
       }

@@ -989,3 +989,239 @@ body {
   cursor: not-allowed;
 }
 
+/* Completion Banner */
+.test-completed-banner {
+  padding: 1.25rem;
+  border-radius: var(--radius-md);
+  background: var(--color-danger-light);
+  border: 1px solid #fecaca;
+  color: #991b1b;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.test-completed-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.95rem;
+  color: #b91c1c;
+}
+
+.test-completed-text {
+  font-size: 0.85rem;
+  color: #991b1b;
+  line-height: 1.45;
+}
+
+
+/* End Test Button */
+.btn-danger {
+  background-color: #dc2626;
+  border-color: #dc2626;
+  color: #ffffff;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background-color: #b91c1c;
+  border-color: #b91c1c;
+}
+
+.btn-danger:disabled {
+  background-color: #e2e8f0;
+  border-color: #e2e8f0;
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.exam-end-btn {
+  min-width: 130px;
+}
+
+/* ==========================================================================
+   Results View
+   ========================================================================== */
+
+.results-card {
+  gap: 2rem;
+}
+
+.results-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 1.25rem;
+}
+
+.results-icon-wrap {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.results-icon--done {
+  background: #dcfce7;
+  color: #16a34a;
+  border: 2px solid #86efac;
+}
+
+.results-icon--timeout {
+  background: #fee2e2;
+  color: #dc2626;
+  border: 2px solid #fca5a5;
+}
+
+.results-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--color-text-primary);
+  line-height: 1.4;
+  margin-bottom: 0.3rem;
+}
+
+.results-subtitle {
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.results-score-row {
+  display: flex;
+  justify-content: center;
+}
+
+.results-score-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 1.5rem 3rem;
+  border-radius: var(--radius-lg);
+  border: 2px solid;
+  min-width: 200px;
+  text-align: center;
+}
+
+.result-score--pass {
+  background: #f0fdf4;
+  border-color: #86efac;
+  color: #15803d;
+}
+
+.result-score--partial {
+  background: #fffbeb;
+  border-color: #fde68a;
+  color: #b45309;
+}
+
+.result-score--fail {
+  background: #fef2f2;
+  border-color: #fca5a5;
+  color: #b91c1c;
+}
+
+.results-score-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.75;
+}
+
+.results-score-value {
+  font-size: 2.5rem;
+  font-weight: 800;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.results-score-pct {
+  font-size: 1.1rem;
+  font-weight: 700;
+  opacity: 0.8;
+}
+
+.results-breakdown {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+}
+
+@media (max-width: 600px) {
+  .results-breakdown {
+    grid-template-columns: 1fr;
+  }
+}
+
+.result-stat {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 1rem 1.1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-subtle);
+}
+
+.result-stat-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.result-stat--correct .result-stat-icon {
+  background: #dcfce7;
+  color: #16a34a;
+  border: 1px solid #86efac;
+}
+
+.result-stat--incorrect .result-stat-icon {
+  background: #fee2e2;
+  color: #dc2626;
+  border: 1px solid #fca5a5;
+}
+
+.result-stat--unanswered .result-stat-icon {
+  background: #f8fafc;
+  color: #64748b;
+  border: 1px solid #e2e8f0;
+}
+
+.result-stat-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.result-stat-label {
+  font-size: 0.775rem;
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
+
+.result-stat-value {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.results-disclaimer {
+  font-size: 0.775rem;
+  color: var(--color-text-muted);
+  text-align: center;
+  line-height: 1.5;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--color-border);
+}

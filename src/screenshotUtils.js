@@ -190,7 +190,8 @@ export class ScreenshotCaptureController {
   }
 
   setIntervalSeconds(seconds) {
-    const val = Math.max(1, Math.floor(Number(seconds) || DEFAULT_SCREENSHOT_INTERVAL_SECONDS));
+    const num = Number(seconds);
+    const val = isNaN(num) || num <= 0 ? DEFAULT_SCREENSHOT_INTERVAL_SECONDS : Math.floor(num);
     this.intervalSeconds = val;
     // If already active, restart interval with new timing
     if (this.timerId) {

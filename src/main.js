@@ -7,6 +7,13 @@ import {
   calculateRemainingSeconds,
   calculateScore
 } from './examUtils.js';
+import {
+  DEFAULT_SCREENSHOT_INTERVAL_SECONDS,
+  ScreenshotCaptureController,
+  saveScreenshotRecord,
+  revokeScreenshotUrl,
+  revokeAllScreenshotUrls
+} from './screenshotUtils.js';
 
 document.addEventListener('DOMContentLoaded', () => {
   const app = document.getElementById('app');
@@ -20,6 +27,11 @@ document.addEventListener('DOMContentLoaded', () => {
     fullscreenActive: false,
     fullscreenSupported: true,
     fullscreenErrorMessage: '',
+    screenshotConsent: false,
+    screenshotIntervalSeconds: DEFAULT_SCREENSHOT_INTERVAL_SECONDS,
+    screenshotStatus: 'idle',
+    screenshots: [],
+    activeScreenshotPreview: null,
     testStarted: false,
     currentQuestionIndex: 0,
     selectedAnswers: {},
@@ -32,6 +44,39 @@ document.addEventListener('DOMContentLoaded', () => {
 
   let activeStream = null;
   let timerInterval = null;
+
+  const screenshotController = new ScreenshotCaptureController({
+    intervalSeconds: state.screenshotIntervalSeconds,
+    storageApi: typeof window !== 'undefined' ? window.electronAPI : null,
+    autoSave: true,
+    getIsExamActive: () => state.testStarted && !state.isCompleted,
+    getConsent: () => state.screenshotConsent,
+    getStream: () => activeStream,
+    getVideoElement: () => document.getElementById('cameraVideo'),
+    onStatusChange: (status) => {
+      state.screenshotStatus = status;
+      const statusPillEl = document.getElementById('screenshotGalleryStatusPill');
+      if (statusPillEl) {
+        const meta = getScreenshotStatusMeta();
+        statusPillEl.className = `status-pill ${meta.pillClass}`;
+        statusPillEl.innerHTML = `<span class="status-dot ${meta.dotClass}"></span>${meta.label}`;
+      }
+    },
+    onCapture: async (record) => {
+      state.screenshots.push(record);
+      if (!record.savedPath && window.electronAPI?.saveScreenshot) {
+        try {
+          await saveScreenshotRecord(record, window.electronAPI);
+        } catch (err) {
+          console.warn('Screenshot save fallback error:', err);
+        }
+      }
+      render();
+    },
+    onError: (err) => {
+      console.warn('Webcam screenshot non-fatal capture error:', err);
+    }
+  });
 
   function stopExamTimer() {
     if (timerInterval) {
@@ -83,6 +128,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (state.isCompleted) return; // Ensure automatic completion happens only once
     state.isCompleted = true;
     state.completionReason = 'timeout';
+    screenshotController.stop();
+    state.screenshotStatus = 'stopped';
     stopExamTimer();
     stopCamera();
     exitFullscreen();
@@ -93,6 +140,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (state.isCompleted) return;
     state.isCompleted = true;
     state.completionReason = 'manual';
+    screenshotController.stop();
+    state.screenshotStatus = 'stopped';
     stopExamTimer();
     stopCamera();
     exitFullscreen();
@@ -100,6 +149,8 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function onTrackEnded() {
+    screenshotController.stop();
+    state.screenshotStatus = 'stopped';
     stopCamera();
     state.cameraState = 'unavailable';
     state.cameraErrorMessage = 'The webcam stream was disconnected by the system.';
@@ -157,6 +208,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function stopCamera() {
+    screenshotController.stop();
     if (activeStream) {
       activeStream.getVideoTracks().forEach((track) => {
         track.removeEventListener('ended', onTrackEnded);
@@ -168,14 +220,25 @@ document.addEventListener('DOMContentLoaded', () => {
     state.cameraErrorMessage = '';
   }
 
-  // Ensure webcam tracks and exam timers are released if page/exam flow is abandoned or unloaded
+  // Ensure webcam tracks, screenshots, and exam timers are released if page/exam flow is abandoned or unloaded
   window.addEventListener('beforeunload', () => {
+    screenshotController.stop();
+    clearAllScreenshots();
     stopCamera();
     stopExamTimer();
   });
   window.addEventListener('pagehide', () => {
+    screenshotController.stop();
+    clearAllScreenshots();
     stopCamera();
     stopExamTimer();
+  });
+
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && state.activeScreenshotPreview) {
+      state.activeScreenshotPreview = null;
+      render();
+    }
   });
 
   function toggleCamera() {
@@ -503,34 +566,33 @@ document.addEventListener('DOMContentLoaded', () => {
     return isActualFullscreenActive();
   }
 
+  function isConsentGiven() {
+    return Boolean(state.screenshotConsent);
+  }
+
   function isReadyToStart() {
-    return isCameraReady() && isFullscreenReady();
+    return isCameraReady() && isFullscreenReady() && isConsentGiven();
   }
 
   function getReadinessHelperText() {
     const cameraOk = isCameraReady();
     const fullscreenOk = isFullscreenReady();
+    const consentOk = isConsentGiven();
 
-    if (cameraOk && fullscreenOk) {
+    if (cameraOk && fullscreenOk && consentOk) {
       return {
         text: 'All requirements satisfied. Test is ready to start.',
         className: 'ready'
       };
     }
-    if (!cameraOk && !fullscreenOk) {
-      return {
-        text: 'Both active camera feed and fullscreen mode are required to begin.',
-        className: 'warning'
-      };
-    }
-    if (!cameraOk) {
-      return {
-        text: 'Webcam permission and live feed required before starting.',
-        className: 'warning'
-      };
-    }
+
+    const missing = [];
+    if (!cameraOk) missing.push('active webcam feed');
+    if (!fullscreenOk) missing.push('fullscreen mode');
+    if (!consentOk) missing.push('screenshot consent acknowledgement');
+
     return {
-      text: 'Fullscreen mode must be active to begin the assessment.',
+      text: `Required to begin: Please provide ${missing.join(', ')}.`,
       className: 'warning'
     };
   }
@@ -632,7 +694,49 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
           </div>
 
-          <!-- 3. Start Test Button -->
+          <!-- 3. Periodic Screenshot Notice & Explicit Consent -->
+          <div class="consent-card" id="screenshotConsentCard">
+            <div class="consent-card-header">
+              <div class="consent-icon-wrap" aria-hidden="true">
+                <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path>
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                </svg>
+              </div>
+              <div class="consent-meta">
+                <div class="consent-title-row">
+                  <h2 class="permission-name">Webcam Screenshot Consent</h2>
+                  <span class="status-pill ${state.screenshotConsent ? 'status-pill--ready' : 'status-pill--pending'}" id="consentStatusBadge">
+                    <span class="status-dot ${state.screenshotConsent ? 'status-dot--ready' : 'status-dot--pending'}"></span>
+                    ${state.screenshotConsent ? 'Acknowledged' : 'Consent Required'}
+                  </span>
+                </div>
+                <p class="consent-notice-description">
+                  Periodic still screenshots will be captured from your active camera stream every 5 seconds during the test.
+                </p>
+              </div>
+            </div>
+            <div class="consent-notice-details">
+              <ul class="consent-notice-list">
+                <li>Captured images are stored locally in the screenshots directory during the exam session.</li>
+                <li>No audio or continuous video recording is performed.</li>
+                <li>Captures run strictly while the exam is in progress and stop immediately upon completion.</li>
+              </ul>
+              <label class="consent-checkbox-row" for="screenshotConsentCheckbox">
+                <input
+                  type="checkbox"
+                  id="screenshotConsentCheckbox"
+                  class="consent-checkbox"
+                  ${state.screenshotConsent ? 'checked' : ''}
+                />
+                <span class="consent-checkbox-text">
+                  I understand and explicitly agree to periodic webcam screenshot capture during this examination.
+                </span>
+              </label>
+            </div>
+          </div>
+
+          <!-- 4. Start Test Button -->
           <div class="start-section">
             <button
               type="button"
@@ -656,6 +760,120 @@ document.addEventListener('DOMContentLoaded', () => {
         <footer class="athena-footer">
           Athena Proctoring System &bull; Secure Examination Environment
         </footer>
+      </div>
+    `;
+  }
+
+  function getScreenshotStatusMeta() {
+    if (state.isCompleted) {
+      return { label: 'Capture Stopped', pillClass: 'status-pill--pending', dotClass: '' };
+    }
+    switch (state.screenshotStatus) {
+      case 'capturing':
+        return { label: 'Capturing snapshot...', pillClass: 'status-pill--pending', dotClass: 'status-dot--pending' };
+      case 'active':
+        return { label: `Capturing (every ${state.screenshotIntervalSeconds}s)`, pillClass: 'status-pill--ready', dotClass: 'status-dot--pulsing' };
+      case 'stopped':
+        return { label: 'Capture Stopped', pillClass: 'status-pill--pending', dotClass: '' };
+      case 'idle':
+      default:
+        return { label: 'Standby', pillClass: 'status-pill--pending', dotClass: 'status-dot--pending' };
+    }
+  }
+
+  function renderScreenshotGallery() {
+    const meta = getScreenshotStatusMeta();
+    const count = state.screenshots.length;
+
+    return `
+      <section class="screenshot-gallery-card" aria-label="Proctoring Screenshot Gallery">
+        <div class="screenshot-gallery-header">
+          <div class="screenshot-gallery-title-group">
+            <svg class="screenshot-gallery-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path>
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path>
+            </svg>
+            <h2 class="screenshot-gallery-title">Webcam Screenshots</h2>
+            <span class="status-pill ${meta.pillClass}" id="screenshotGalleryStatusPill">
+              <span class="status-dot ${meta.dotClass}"></span>
+              ${meta.label}
+            </span>
+            <span class="screenshot-count-badge" id="screenshotCountBadge">Total: ${count}</span>
+          </div>
+
+          <button
+            type="button"
+            class="btn-clear-screenshots"
+            id="clearAllScreenshotsBtn"
+            ${count === 0 ? 'disabled' : ''}
+          >
+            Clear All
+          </button>
+        </div>
+
+        ${count === 0 ? `
+          <div class="screenshot-gallery-empty">
+            No screenshots captured yet. Automatic captures run approximately every ${state.screenshotIntervalSeconds} seconds during the exam.
+          </div>
+        ` : `
+          <div class="screenshot-thumbnails-scroll" role="region" aria-label="Captured thumbnails">
+            ${state.screenshots.map((shot) => `
+              <div class="screenshot-thumb-card" data-shot-id="${shot.id}">
+                <div class="screenshot-thumb-img-wrap" data-preview-id="${shot.id}" title="Click to preview screenshot">
+                  <img src="${shot.objectUrl}" alt="Webcam capture at ${shot.displayTime}" class="screenshot-thumb-img" />
+                  <div class="screenshot-thumb-overlay" aria-hidden="true">
+                    <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                    </svg>
+                  </div>
+                </div>
+                <div class="screenshot-thumb-meta">
+                  <span class="screenshot-thumb-time">${shot.displayTime}</span>
+                  <button
+                    type="button"
+                    class="btn-delete-shot"
+                    data-delete-id="${shot.id}"
+                    title="Delete screenshot"
+                    aria-label="Delete screenshot taken at ${shot.displayTime}"
+                  >
+                    <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        `}
+      </section>
+    `;
+  }
+
+  function renderScreenshotPreviewModal() {
+    if (!state.activeScreenshotPreview) return '';
+    const shot = state.screenshots.find((s) => s.id === state.activeScreenshotPreview);
+    if (!shot) return '';
+
+    return `
+      <div class="screenshot-preview-modal-backdrop" id="screenshotPreviewModalBackdrop">
+        <div class="screenshot-preview-modal-content" role="dialog" aria-modal="true" aria-labelledby="previewModalTitle">
+          <div class="screenshot-preview-modal-header">
+            <div class="screenshot-preview-modal-title" id="previewModalTitle">
+              <span>Webcam Screenshot Preview</span>
+              <span class="screenshot-preview-timestamp">${shot.displayTime}</span>
+            </div>
+            <button type="button" class="btn-close-preview" id="closeScreenshotPreviewBtn" aria-label="Close preview">&times;</button>
+          </div>
+          <div class="screenshot-preview-modal-body">
+            <img src="${shot.objectUrl}" alt="Webcam Screenshot Preview at ${shot.displayTime}" class="screenshot-preview-full-img" />
+          </div>
+          <div class="screenshot-preview-modal-footer">
+            <span class="screenshot-preview-path" style="font-size: 0.8rem; color: #64748b; margin-right: auto;">screenshots/${shot.filename}</span>
+            <button type="button" class="btn btn-secondary" id="closePreviewBtnBottom">Close</button>
+            <button type="button" class="btn btn-danger" id="deletePreviewedShotBtn" data-shot-id="${shot.id}">Delete</button>
+          </div>
+        </div>
       </div>
     `;
   }
@@ -816,11 +1034,50 @@ document.addEventListener('DOMContentLoaded', () => {
           </footer>
         </main>
 
+        <!-- Periodic Screenshot Gallery Section -->
+        ${renderScreenshotGallery()}
+
         <footer class="athena-footer">
           Athena Proctoring System &bull; Active Examination Session
         </footer>
+
+        <!-- Screenshot Preview Modal -->
+        ${renderScreenshotPreviewModal()}
       </div>
     `;
+  }
+
+  async function deleteSingleScreenshot(shotId) {
+    const idx = state.screenshots.findIndex((s) => s.id === shotId);
+    if (idx !== -1) {
+      const [removed] = state.screenshots.splice(idx, 1);
+      revokeScreenshotUrl(removed);
+      if (window.electronAPI && typeof window.electronAPI.deleteScreenshot === 'function' && removed.filename) {
+        try {
+          await window.electronAPI.deleteScreenshot(removed.filename);
+        } catch (err) {
+          console.warn('Failed to delete screenshot file from disk:', err);
+        }
+      }
+      if (state.activeScreenshotPreview === shotId) {
+        state.activeScreenshotPreview = null;
+      }
+      render();
+    }
+  }
+
+  async function clearAllScreenshots() {
+    revokeAllScreenshotUrls(state.screenshots);
+    state.screenshots = [];
+    state.activeScreenshotPreview = null;
+    if (window.electronAPI && typeof window.electronAPI.clearScreenshots === 'function') {
+      try {
+        await window.electronAPI.clearScreenshots();
+      } catch (err) {
+        console.warn('Failed to clear screenshots from disk:', err);
+      }
+    }
+    render();
   }
 
   function renderResultsView() {
@@ -892,6 +1149,32 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
           </div>
 
+          <!-- Proctoring Session Summary & Cleanup -->
+          <div class="results-proctoring-summary">
+            <div class="results-proctoring-header">
+              <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path>
+              </svg>
+              <span>Proctoring & Integrity Summary</span>
+            </div>
+            <p class="results-proctoring-text">
+              Webcam monitoring and periodic screenshot captures stopped automatically when the examination ended.
+              A total of <strong>${state.screenshots.length}</strong> temporary screenshot(s) were captured locally during the session.
+            </p>
+            <div class="results-proctoring-actions">
+              <span class="proctoring-cleanup-note">
+                Screenshots were stored in temporary browser memory only and never uploaded.
+              </span>
+              ${state.screenshots.length > 0 ? `
+                <button type="button" class="btn btn-secondary btn-purge-results" id="purgeResultsScreenshotsBtn">
+                  Purge In-Memory Screenshots (${state.screenshots.length})
+                </button>
+              ` : `
+                <span class="proctoring-purged-badge">✓ In-memory screenshots purged</span>
+              `}
+            </div>
+          </div>
+
           <p class="results-disclaimer">
             This is a local demo examination. Scores are calculated client-side only and are not transmitted or stored anywhere.
           </p>
@@ -947,6 +1230,14 @@ document.addEventListener('DOMContentLoaded', () => {
         });
       }
 
+      const consentCheckbox = document.getElementById('screenshotConsentCheckbox');
+      if (consentCheckbox) {
+        consentCheckbox.addEventListener('change', (e) => {
+          state.screenshotConsent = e.target.checked;
+          render();
+        });
+      }
+
       const startTestBtn = document.getElementById('startTestButton');
       if (startTestBtn) {
         startTestBtn.addEventListener('click', () => {
@@ -955,12 +1246,25 @@ document.addEventListener('DOMContentLoaded', () => {
             state.isCompleted = false;
             state.completionReason = null;
             startExamTimer();
+            screenshotController.start();
             render();
+            // Trigger initial screenshot after video starts playing
+            setTimeout(() => {
+              if (state.testStarted && !state.isCompleted) {
+                screenshotController.executeSingleCapture();
+              }
+            }, 1000);
           }
         });
       }
     } else {
       if (state.isCompleted) {
+        const purgeBtn = document.getElementById('purgeResultsScreenshotsBtn');
+        if (purgeBtn) {
+          purgeBtn.addEventListener('click', () => {
+            clearAllScreenshots();
+          });
+        }
         return; // Stop further question interaction; results view has no interactive exam controls
       }
 
@@ -1024,6 +1328,78 @@ document.addEventListener('DOMContentLoaded', () => {
           }
         });
       });
+
+      // Gallery Controls: Clear All
+      const clearAllBtn = document.getElementById('clearAllScreenshotsBtn');
+      if (clearAllBtn) {
+        clearAllBtn.addEventListener('click', () => {
+          if (state.screenshots.length > 0 && window.confirm('Clear all captured screenshots from memory?')) {
+            clearAllScreenshots();
+          }
+        });
+      }
+
+      // Gallery Controls: Preview Trigger
+      const previewTriggers = document.querySelectorAll('[data-preview-id]');
+      previewTriggers.forEach((trigger) => {
+        trigger.addEventListener('click', () => {
+          const shotId = trigger.getAttribute('data-preview-id');
+          if (shotId) {
+            state.activeScreenshotPreview = shotId;
+            render();
+          }
+        });
+      });
+
+      // Gallery Controls: Single Delete Trigger
+      const deleteButtons = document.querySelectorAll('[data-delete-id]');
+      deleteButtons.forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const shotId = btn.getAttribute('data-delete-id');
+          if (shotId) {
+            deleteSingleScreenshot(shotId);
+          }
+        });
+      });
+
+      // Modal Controls: Close Preview
+      const closePreviewBtn = document.getElementById('closeScreenshotPreviewBtn');
+      if (closePreviewBtn) {
+        closePreviewBtn.addEventListener('click', () => {
+          state.activeScreenshotPreview = null;
+          render();
+        });
+      }
+
+      const closePreviewBtnBottom = document.getElementById('closePreviewBtnBottom');
+      if (closePreviewBtnBottom) {
+        closePreviewBtnBottom.addEventListener('click', () => {
+          state.activeScreenshotPreview = null;
+          render();
+        });
+      }
+
+      const modalBackdrop = document.getElementById('screenshotPreviewModalBackdrop');
+      if (modalBackdrop) {
+        modalBackdrop.addEventListener('click', (e) => {
+          if (e.target === modalBackdrop) {
+            state.activeScreenshotPreview = null;
+            render();
+          }
+        });
+      }
+
+      // Modal Controls: Delete Previewed Shot
+      const deletePreviewedBtn = document.getElementById('deletePreviewedShotBtn');
+      if (deletePreviewedBtn) {
+        deletePreviewedBtn.addEventListener('click', () => {
+          const shotId = deletePreviewedBtn.getAttribute('data-shot-id');
+          if (shotId) {
+            deleteSingleScreenshot(shotId);
+          }
+        });
+      }
     }
   }
 

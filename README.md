@@ -57,7 +57,9 @@ The focused UI provides a streamlined candidate verification interface containin
 1. **Camera Preview Area:** Dedicated 16:9 viewport supporting live webcam video streaming with horizontal mirroring and comprehensive state rendering (Granted, Denied, Loading, Unavailable, Idle).
 2. **Camera Permission Control:** Dedicated action button and status indicator showing camera readiness with in-place retry capabilities.
 3. **Fullscreen Permission Control:** Dedicated action button and status indicator triggering the browser Fullscreen API with automatic exit detection (e.g., `Esc` key).
-4. **Start Test Button:** Action button dynamically gated and enabled only when both camera access and fullscreen prerequisites are satisfied simultaneously.
+4. **Screenshot Consent & Notice Card:** Explicit notice explaining periodic webcam capture terms with an acknowledgement checkbox required before test launch.
+5. **Start Test Button:** Action button dynamically gated and enabled only when camera access, fullscreen prerequisites, and screenshot consent are satisfied simultaneously.
+6. **Proctoring Screenshot Gallery:** A compact in-exam section displaying capture status, total screenshot count, horizontal thumbnail cards with timestamps, single/bulk deletion, and full image preview modal.
 
 ---
 
@@ -168,11 +170,46 @@ Score tier colours shown on the results screen:
 - **Rejected & Unsupported Handling:** Handles rejection errors gracefully without breaking application flow and disables fullscreen actions in unsupported environments.
 
 ### 3. Readiness Gating for "Start Test"
-The `Start Test` button is strictly gated by both prerequisites:
-$$\text{Ready} = \text{CameraGranted} \land \text{CameraStreamActive} \land \text{FullscreenActive}$$
+The `Start Test` button is strictly gated by all prerequisites:
+$$\text{Ready} = \text{CameraGranted} \land \text{CameraStreamActive} \land \text{FullscreenActive} \land \text{ConsentAcknowledged}$$
 
-- **Dynamic Invalidation:** If either requirement becomes unsatisfied at any point prior to test launch (e.g. user exits fullscreen or turns off webcam), the `Start Test` button is immediately disabled (`disabled aria-disabled="true"`).
-- **Real-time Helper Text:** Diagnostic helper text guides candidates on exactly which requirement remains unfulfilled.
+- **Dynamic Invalidation:** If any requirement becomes unsatisfied at any point prior to test launch (e.g. user exits fullscreen, turns off webcam, or unchecks consent), the `Start Test` button is immediately disabled (`disabled aria-disabled="true"`).
+- **Real-time Helper Text:** Diagnostic helper text guides candidates on exactly which requirements remain unfulfilled.
+
+---
+
+## Periodic Webcam Screenshot Capture
+
+Athena incorporates periodic webcam still image capture during active examinations for candidate identity and proctoring verification.
+
+### Core Architecture & Execution
+
+- **Configurable Interval:** Captures a still snapshot approximately every 30 seconds (`DEFAULT_SCREENSHOT_INTERVAL_SECONDS = 30` in `src/screenshotUtils.js`). The interval is configurable dynamically via `ScreenshotCaptureController.setIntervalSeconds(seconds)`.
+- **Stream Reuse:** Reuses the existing active webcam `MediaStream` already rendered in the exam pip header. The application **never** requests a second stream or re-invokes `navigator.mediaDevices.getUserMedia`.
+- **Canvas & Blob Generation:** Utilizes an offscreen HTML5 `<canvas>` element and `canvas.toBlob('image/jpeg', 0.85)` to convert video frames directly into binary Blobs, paired with in-memory `URL.createObjectURL(blob)` pointers.
+- **Temporary In-Memory Storage Only:** Captured Blobs and Object URLs are retained strictly in JavaScript application memory (`state.screenshots`). Images are **never** written to local disk, never persisted in `localStorage` or IndexedDB, and never uploaded over network endpoints.
+- **No Audio or Continuous Video:** The proctoring system strictly omits audio tracks and does not record continuous video streams or instantiate `MediaRecorder`.
+
+### Consent & Lifecycle Gating
+
+- **Explicit Informed Consent:** A dedicated notice card is displayed prior to test launch explaining that periodic webcam snapshots will be taken. Candidates must explicitly acknowledge and check the consent box before the `Start Test` button unlocks.
+- **Exam-Only Lifecycle:** Screenshot timers start strictly when the test begins and consent is active. Captures **never** run before the examination starts or after it finishes.
+- **Immediate Teardown:** Captures halt immediately upon:
+  - Candidate clicking `End Test` (manual submission)
+  - Timer expiration (automatic timeout)
+  - Camera disconnection or hardware track ending (`ended` event)
+  - Window cancellation or navigation (`beforeunload`, `pagehide`)
+- **Overlap & Duplicate Prevention:** The `ScreenshotCaptureController` maintains an `isCapturing` lock flag to prevent overlapping capture operations, and automatically clears previous intervals before scheduling new ones.
+- **Timer Fault Isolation:** All capture operations are wrapped in safe `try/catch` handlers. Any frame capture or canvas failure logs a warning without crashing the examination or affecting the countdown timer.
+
+### Minimal Gallery Interface
+
+The active examination view includes a compact, non-intrusive screenshot gallery:
+- **Status Indicator & Count:** Displays current capture state (`Capturing every 30s`, `Capturing snapshot...`, `Capture Stopped`) and total captures taken.
+- **Thumbnail Gallery:** Horizontally scrollable thumbnail cards displaying each captured image alongside its exact timestamp (`HH:MM:SS`).
+- **Interactive Preview:** Clicking any thumbnail opens a clean modal preview dialog showing the full-resolution still frame. The modal can be closed via the close button, clicking the backdrop, or pressing the `Escape` key.
+- **Deletion & URL Revocation:** Candidates can delete individual screenshots or click **Clear All** to purge all captures. Removing any screenshot immediately invokes `URL.revokeObjectURL()` to release allocated memory.
+- **Post-Exam Summary:** The results screen provides an integrity summary showing the total screenshots taken during the session and an immediate purge button to release any remaining in-memory snapshots.
 
 ---
 
@@ -182,15 +219,18 @@ $$\text{Ready} = \text{CameraGranted} \land \text{CameraStreamActive} \land \tex
 - **User Activation / Gestures:** Both `requestFullscreen()` and `getUserMedia()` require transient user activation. Attempts to invoke them programmatically without user interaction will be blocked.
 - **Embedded Iframes:** If Athena is embedded inside an `<iframe>`, the host frame must provide appropriate permissions attributes: `allow="camera; fullscreen"`.
 - **Hardware Concurrency:** Only one application may hold an exclusive lock on the camera device on certain operating systems (such as Windows). If another app holds the webcam, a `NotReadableError` is caught and presented as `Camera Unavailable`.
+- **Canvas Blob Generation:** In restricted browser configurations (e.g. strict CSP or headless environments lacking full 2D canvas support), canvas to Blob export falls back to Base64 byte conversion or returns diagnostic error states without interrupting the test.
+- **Background Tab Throttling:** Browsers throttle `setInterval` timers in background tabs. Athena's countdown timer relies on fixed deadline timestamps (`Date.now()`), and screenshot intervals gracefully resume when the tab returns to focus.
 
 ---
 
 ## Privacy Considerations
 
-- **Local Preview Only:** The camera stream is bound strictly to a local HTML5 `<video>` element for verification preview.
+- **Local Processing Only:** All webcam frames and screenshots remain entirely inside browser memory.
+- **Informed Consent Notice:** Candidates receive clear, explicit notification regarding screenshot frequency and handling prior to launching the exam.
+- **No Cloud Transmission:** No images, video, audio, or telemetry are transmitted to remote servers or third-party cloud services.
 - **No Audio Collection:** Audio tracks are explicitly omitted (`audio: false`).
-- **No Recording or Cloud Transmission:** Athena does not instantiate `MediaRecorder`, WebRTC peer connections, WebSocket video pipes, or HTTP upload endpoints in this verification phase. No video frames are stored or transmitted.
-- **Immediate Resource Cleanup:** Video tracks are explicitly stopped (`track.stop()`) when the user revokes permissions, abandons the test flow, or leaves the application.
+- **Immediate Memory Release:** All Object URLs are explicitly revoked via `URL.revokeObjectURL()` upon item deletion, exam completion, window closure, or explicit memory purging.
 
 ---
 
@@ -221,24 +261,30 @@ npm test
 ```
 
 The test suite covers:
-- Camera error mapping and state transitions (`NotAllowedError`, `NotFoundError`, `NotReadableError`, `OverconstrainedError`).
-- Track cleanup verification upon session abandonment.
-- Fullscreen truthiness and exit detection.
-- Start Test gating logic and dynamic invalidation when either requirement is lost.
-- **Timer behaviour:** `formatTime` formatting (MM:SS), `calculateRemainingSeconds` deadline-based calculation, edge cases for 0, negative, and non-number inputs.
-- **Scoring:** `calculateScore` for all-correct, all-wrong, partial, and no-answer scenarios; invariant check that `correct + incorrect + unanswered === total`.
-- **Answer counts:** `getAnswerCounts` with 0 answered, fully answered, and partial selections.
+- **Camera Error Mapping & State Transitions:** Verification of `NotAllowedError`, `NotFoundError`, `NotReadableError`, and `OverconstrainedError`.
+- **Track Lifecycle Management:** Verification of track cleanup upon session abandonment and disconnection.
+- **Fullscreen Detection:** Element truthiness, fallback detection, and exit handling.
+- **Readiness Gating:** Verification of Start Test gating requiring live camera, active fullscreen, and explicit screenshot consent.
+- **Webcam Screenshot Lifecycle (`tests/screenshots.test.js`):**
+  - Consent requirement validation and gating.
+  - Configurable 30-second interval scheduling and fallback behavior.
+  - Prevention of duplicate intervals and overlapping in-flight captures.
+  - Stream status validation with `isStreamLive` and disconnected track rejection.
+  - Fault tolerance ensuring capture errors do not throw or disrupt the exam timer.
+  - Lifecycle bounds verifying screenshots are never taken before start or after exam completion.
+  - In-memory Object URL creation, individual deletion, and bulk URL revocation.
+- **Exam Timer Behaviour:** `formatTime` formatting (MM:SS), deadline-based `calculateRemainingSeconds`, and edge case handling.
+- **Scoring & Counting:** `calculateScore` and `getAnswerCounts` invariant assertions across all-correct, partial, all-wrong, and empty submissions.
 
 ---
 
 ## Limitations
 
-This is a **local demonstration only**, not a production examination system:
+This is a **local demonstration only**, not a tamper-proof production proctoring system:
 
-- **No backend or server enforcement.** All scoring and timer logic runs in the browser. A technically-inclined candidate could manipulate client-side state via browser DevTools.
-- **No question shuffling or randomisation.** The 10 sample MCQs are always presented in the same order.
-- **No login, authentication, or candidate identification.** Athena does not collect usernames, session tokens, or any personal data.
-- **No answer persistence across page reloads.** Refreshing the page resets the entire session including answers and the timer.
-- **Timer uses `setInterval` at 250 ms.** Browsers may throttle background tabs, but since remaining time is computed from a fixed deadline (`Date.now()`-based), displayed seconds stay accurate even if ticks are delayed.
-- **No screenshot or screen recording.** The proctoring in this version is limited to a live camera preview pip; no frames are captured or stored.
-- **Confirm dialog is browser-native.** The End Test confirmation uses `window.confirm()`. In some automation or testing contexts this may be auto-dismissed.
+- **No Tamper-Proof Proctoring:** This application is an educational prototype and does **not** claim to provide tamper-proof or cheat-proof proctoring. Because all monitoring logic runs client-side in browser memory without backend attestation, an advanced user with access to browser developer tools could modify client state or substitute camera feeds. Production proctoring requires trusted device management, secure lockdown browsers, and verified server-side infrastructure.
+- **No Backend or Cloud Storage:** Screenshots and scores are kept in temporary browser memory only. Refreshing or navigating away clears the entire session.
+- **No AI Facial Recognition or Gaze Tracking:** Captured screenshots are presented locally in a gallery; no biometric facial recognition or automated anomaly detection is applied.
+- **No Question Randomisation:** The 10 sample MCQs are always presented in the same order.
+- **No Authentication or Session Persistence:** Athena does not collect student IDs or credentials.
+- **Browser-Native Confirm Dialog:** The End Test confirmation uses `window.confirm()`. In automated environments this may require dialog handling.

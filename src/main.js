@@ -9,7 +9,9 @@ import {
 } from './examUtils.js';
 import {
   DEFAULT_SCREENSHOT_INTERVAL_SECONDS,
-  ScreenshotCaptureController
+  ScreenshotCaptureController,
+  revokeScreenshotUrl,
+  revokeAllScreenshotUrls
 } from './screenshotUtils.js';
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -28,6 +30,7 @@ document.addEventListener('DOMContentLoaded', () => {
     screenshotIntervalSeconds: DEFAULT_SCREENSHOT_INTERVAL_SECONDS,
     screenshotStatus: 'idle',
     screenshots: [],
+    activeScreenshotPreview: null,
     testStarted: false,
     currentQuestionIndex: 0,
     selectedAnswers: {},
@@ -49,9 +52,16 @@ document.addEventListener('DOMContentLoaded', () => {
     getVideoElement: () => document.getElementById('cameraVideo'),
     onStatusChange: (status) => {
       state.screenshotStatus = status;
+      const statusPillEl = document.getElementById('screenshotGalleryStatusPill');
+      if (statusPillEl) {
+        const meta = getScreenshotStatusMeta();
+        statusPillEl.className = `status-pill ${meta.pillClass}`;
+        statusPillEl.innerHTML = `<span class="status-dot ${meta.dotClass}"></span>${meta.label}`;
+      }
     },
     onCapture: (record) => {
       state.screenshots.push(record);
+      render();
     },
     onError: (err) => {
       console.warn('Webcam screenshot non-fatal capture error:', err);
@@ -201,6 +211,13 @@ document.addEventListener('DOMContentLoaded', () => {
   window.addEventListener('pagehide', () => {
     stopCamera();
     stopExamTimer();
+  });
+
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && state.activeScreenshotPreview) {
+      state.activeScreenshotPreview = null;
+      render();
+    }
   });
 
   function toggleCamera() {
@@ -726,6 +743,119 @@ document.addEventListener('DOMContentLoaded', () => {
     `;
   }
 
+  function getScreenshotStatusMeta() {
+    if (state.isCompleted) {
+      return { label: 'Capture Stopped', pillClass: 'status-pill--pending', dotClass: '' };
+    }
+    switch (state.screenshotStatus) {
+      case 'capturing':
+        return { label: 'Capturing snapshot...', pillClass: 'status-pill--pending', dotClass: 'status-dot--pending' };
+      case 'active':
+        return { label: `Capturing (every ${state.screenshotIntervalSeconds}s)`, pillClass: 'status-pill--ready', dotClass: 'status-dot--pulsing' };
+      case 'stopped':
+        return { label: 'Capture Stopped', pillClass: 'status-pill--pending', dotClass: '' };
+      case 'idle':
+      default:
+        return { label: 'Standby', pillClass: 'status-pill--pending', dotClass: 'status-dot--pending' };
+    }
+  }
+
+  function renderScreenshotGallery() {
+    const meta = getScreenshotStatusMeta();
+    const count = state.screenshots.length;
+
+    return `
+      <section class="screenshot-gallery-card" aria-label="Proctoring Screenshot Gallery">
+        <div class="screenshot-gallery-header">
+          <div class="screenshot-gallery-title-group">
+            <svg class="screenshot-gallery-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path>
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path>
+            </svg>
+            <h2 class="screenshot-gallery-title">Webcam Screenshots</h2>
+            <span class="status-pill ${meta.pillClass}" id="screenshotGalleryStatusPill">
+              <span class="status-dot ${meta.dotClass}"></span>
+              ${meta.label}
+            </span>
+            <span class="screenshot-count-badge" id="screenshotCountBadge">Total: ${count}</span>
+          </div>
+
+          <button
+            type="button"
+            class="btn-clear-screenshots"
+            id="clearAllScreenshotsBtn"
+            ${count === 0 ? 'disabled' : ''}
+          >
+            Clear All
+          </button>
+        </div>
+
+        ${count === 0 ? `
+          <div class="screenshot-gallery-empty">
+            No screenshots captured yet. Automatic captures run approximately every ${state.screenshotIntervalSeconds} seconds during the exam.
+          </div>
+        ` : `
+          <div class="screenshot-thumbnails-scroll" role="region" aria-label="Captured thumbnails">
+            ${state.screenshots.map((shot) => `
+              <div class="screenshot-thumb-card" data-shot-id="${shot.id}">
+                <div class="screenshot-thumb-img-wrap" data-preview-id="${shot.id}" title="Click to preview screenshot">
+                  <img src="${shot.objectUrl}" alt="Webcam capture at ${shot.displayTime}" class="screenshot-thumb-img" />
+                  <div class="screenshot-thumb-overlay" aria-hidden="true">
+                    <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                    </svg>
+                  </div>
+                </div>
+                <div class="screenshot-thumb-meta">
+                  <span class="screenshot-thumb-time">${shot.displayTime}</span>
+                  <button
+                    type="button"
+                    class="btn-delete-shot"
+                    data-delete-id="${shot.id}"
+                    title="Delete screenshot"
+                    aria-label="Delete screenshot taken at ${shot.displayTime}"
+                  >
+                    <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        `}
+      </section>
+    `;
+  }
+
+  function renderScreenshotPreviewModal() {
+    if (!state.activeScreenshotPreview) return '';
+    const shot = state.screenshots.find((s) => s.id === state.activeScreenshotPreview);
+    if (!shot) return '';
+
+    return `
+      <div class="screenshot-preview-modal-backdrop" id="screenshotPreviewModalBackdrop">
+        <div class="screenshot-preview-modal-content" role="dialog" aria-modal="true" aria-labelledby="previewModalTitle">
+          <div class="screenshot-preview-modal-header">
+            <div class="screenshot-preview-modal-title" id="previewModalTitle">
+              <span>Webcam Screenshot Preview</span>
+              <span class="screenshot-preview-timestamp">${shot.displayTime}</span>
+            </div>
+            <button type="button" class="btn-close-preview" id="closeScreenshotPreviewBtn" aria-label="Close preview">&times;</button>
+          </div>
+          <div class="screenshot-preview-modal-body">
+            <img src="${shot.objectUrl}" alt="Webcam Screenshot Preview at ${shot.displayTime}" class="screenshot-preview-full-img" />
+          </div>
+          <div class="screenshot-preview-modal-footer">
+            <button type="button" class="btn btn-secondary" id="closePreviewBtnBottom">Close</button>
+            <button type="button" class="btn btn-danger" id="deletePreviewedShotBtn" data-shot-id="${shot.id}">Delete</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   function renderExamView() {
     const { answeredCount, unansweredCount, totalQuestions } = getAnswerCounts(QUESTIONS, state.selectedAnswers);
     const currentQIndex = state.currentQuestionIndex;
@@ -882,11 +1012,36 @@ document.addEventListener('DOMContentLoaded', () => {
           </footer>
         </main>
 
+        <!-- Periodic Screenshot Gallery Section -->
+        ${renderScreenshotGallery()}
+
         <footer class="athena-footer">
           Athena Proctoring System &bull; Active Examination Session
         </footer>
+
+        <!-- Screenshot Preview Modal -->
+        ${renderScreenshotPreviewModal()}
       </div>
     `;
+  }
+
+  function deleteSingleScreenshot(shotId) {
+    const idx = state.screenshots.findIndex((s) => s.id === shotId);
+    if (idx !== -1) {
+      const [removed] = state.screenshots.splice(idx, 1);
+      revokeScreenshotUrl(removed);
+      if (state.activeScreenshotPreview === shotId) {
+        state.activeScreenshotPreview = null;
+      }
+      render();
+    }
+  }
+
+  function clearAllScreenshots() {
+    revokeAllScreenshotUrls(state.screenshots);
+    state.screenshots = [];
+    state.activeScreenshotPreview = null;
+    render();
   }
 
   function renderResultsView() {
@@ -1105,6 +1260,78 @@ document.addEventListener('DOMContentLoaded', () => {
           }
         });
       });
+
+      // Gallery Controls: Clear All
+      const clearAllBtn = document.getElementById('clearAllScreenshotsBtn');
+      if (clearAllBtn) {
+        clearAllBtn.addEventListener('click', () => {
+          if (state.screenshots.length > 0 && window.confirm('Clear all captured screenshots from memory?')) {
+            clearAllScreenshots();
+          }
+        });
+      }
+
+      // Gallery Controls: Preview Trigger
+      const previewTriggers = document.querySelectorAll('[data-preview-id]');
+      previewTriggers.forEach((trigger) => {
+        trigger.addEventListener('click', () => {
+          const shotId = trigger.getAttribute('data-preview-id');
+          if (shotId) {
+            state.activeScreenshotPreview = shotId;
+            render();
+          }
+        });
+      });
+
+      // Gallery Controls: Single Delete Trigger
+      const deleteButtons = document.querySelectorAll('[data-delete-id]');
+      deleteButtons.forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const shotId = btn.getAttribute('data-delete-id');
+          if (shotId) {
+            deleteSingleScreenshot(shotId);
+          }
+        });
+      });
+
+      // Modal Controls: Close Preview
+      const closePreviewBtn = document.getElementById('closeScreenshotPreviewBtn');
+      if (closePreviewBtn) {
+        closePreviewBtn.addEventListener('click', () => {
+          state.activeScreenshotPreview = null;
+          render();
+        });
+      }
+
+      const closePreviewBtnBottom = document.getElementById('closePreviewBtnBottom');
+      if (closePreviewBtnBottom) {
+        closePreviewBtnBottom.addEventListener('click', () => {
+          state.activeScreenshotPreview = null;
+          render();
+        });
+      }
+
+      const modalBackdrop = document.getElementById('screenshotPreviewModalBackdrop');
+      if (modalBackdrop) {
+        modalBackdrop.addEventListener('click', (e) => {
+          if (e.target === modalBackdrop) {
+            state.activeScreenshotPreview = null;
+            render();
+          }
+        });
+      }
+
+      // Modal Controls: Delete Previewed Shot
+      const deletePreviewedBtn = document.getElementById('deletePreviewedShotBtn');
+      if (deletePreviewedBtn) {
+        deletePreviewedBtn.addEventListener('click', () => {
+          const shotId = deletePreviewedBtn.getAttribute('data-shot-id');
+          if (shotId) {
+            deleteSingleScreenshot(shotId);
+          }
+        });
+      }
     }
   }
 

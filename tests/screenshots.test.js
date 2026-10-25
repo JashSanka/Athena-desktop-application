@@ -6,6 +6,7 @@ import {
   isStreamLive,
   validateCapturePreconditions,
   createScreenshotRecord,
+  saveScreenshotRecord,
   revokeScreenshotUrl,
   revokeAllScreenshotUrls,
   ScreenshotCaptureController
@@ -79,8 +80,8 @@ describe('Webcam Screenshot — Consent & Preconditions', () => {
 });
 
 describe('Webcam Screenshot — Scheduling & Configurable Interval', () => {
-  it('default interval is configured to exactly 30 seconds', () => {
-    assert.equal(DEFAULT_SCREENSHOT_INTERVAL_SECONDS, 30);
+  it('default interval is configured to exactly 5 seconds', () => {
+    assert.equal(DEFAULT_SCREENSHOT_INTERVAL_SECONDS, 5);
   });
 
   it('accepts configurable custom intervals', () => {
@@ -94,7 +95,7 @@ describe('Webcam Screenshot — Scheduling & Configurable Interval', () => {
 
     // Negative or non-number falls back safely
     controller.setIntervalSeconds(-5);
-    assert.equal(controller.intervalSeconds, 30);
+    assert.equal(controller.intervalSeconds, 5);
   });
 
   it('prevents duplicate capture intervals when start() is called repeatedly', () => {
@@ -261,6 +262,109 @@ describe('Webcam Screenshot — Deletion & Object URL Revocation', () => {
       assert.match(record.displayTime, /^\d{2}:\d{2}:\d{2}$/);
     } finally {
       if (origCreate) globalThis.URL.createObjectURL = origCreate;
+    }
+  });
+});
+
+describe('Webcam Screenshot — Storage to screenshots directory', () => {
+  it('saves screenshot record to disk using storageApi', async () => {
+    let savedPayload = null;
+    const mockStorageApi = {
+      saveScreenshot: async (payload) => {
+        savedPayload = payload;
+        return {
+          success: true,
+          filePath: `/Users/app/screenshots/${payload.filename}`,
+          filename: payload.filename
+        };
+      }
+    };
+
+    const mockBlob = new Blob([new Uint8Array([0xFF, 0xD8, 0xFF, 0xE0])], { type: 'image/jpeg' });
+    const record = {
+      id: 'snap_123',
+      filename: 'snap_123.jpg',
+      blob: mockBlob,
+      savedPath: null
+    };
+
+    const res = await saveScreenshotRecord(record, mockStorageApi);
+    assert.equal(res.success, true);
+    assert.equal(record.savedPath, '/Users/app/screenshots/snap_123.jpg');
+    assert.ok(savedPayload !== null);
+    assert.equal(savedPayload.filename, 'snap_123.jpg');
+    assert.ok(savedPayload.data instanceof Uint8Array);
+  });
+
+  it('gracefully returns error when storageApi or record is missing', async () => {
+    const resNoRecord = await saveScreenshotRecord(null, {});
+    assert.equal(resNoRecord.success, false);
+    assert.match(resNoRecord.error, /missing/i);
+
+    const resNoApi = await saveScreenshotRecord({ blob: new Blob([]) }, null);
+    assert.equal(resNoApi.success, false);
+    assert.match(resNoApi.error, /not available/i);
+  });
+
+  it('auto-saves captured screenshots when storageApi is provided in controller', async () => {
+    let savedRecordFilename = null;
+    const mockStorageApi = {
+      saveScreenshot: async (payload) => {
+        savedRecordFilename = payload.filename;
+        return {
+          success: true,
+          filePath: `/screenshots/${payload.filename}`,
+          filename: payload.filename
+        };
+      }
+    };
+
+    let capturedRecord = null;
+    const controller = new ScreenshotCaptureController({
+      intervalSeconds: 5,
+      storageApi: mockStorageApi,
+      autoSave: true,
+      getIsExamActive: () => true,
+      getConsent: () => true,
+      getStream: () => ({ active: true, getVideoTracks: () => [{ readyState: 'live' }] }),
+      getVideoElement: () => ({
+        videoWidth: 640,
+        videoHeight: 480
+      }),
+      onCapture: (record) => {
+        capturedRecord = record;
+      }
+    });
+
+    // Mock document.createElement for canvas
+    const origCreateElement = globalThis.document?.createElement;
+    if (!globalThis.document) globalThis.document = {};
+    globalThis.document.createElement = (tag) => {
+      if (tag === 'canvas') {
+        return {
+          width: 0,
+          height: 0,
+          getContext: () => ({
+            drawImage: () => {}
+          }),
+          toBlob: (cb) => cb(new Blob([new Uint8Array([1, 2, 3])], { type: 'image/jpeg' }))
+        };
+      }
+      return origCreateElement ? origCreateElement(tag) : null;
+    };
+
+    try {
+      const record = await controller.executeSingleCapture();
+      assert.ok(record !== null);
+      assert.ok(capturedRecord !== null);
+      assert.equal(savedRecordFilename, record.filename);
+      assert.equal(record.savedPath, `/screenshots/${record.filename}`);
+    } finally {
+      if (origCreateElement) {
+        globalThis.document.createElement = origCreateElement;
+      } else {
+        delete globalThis.document.createElement;
+      }
     }
   });
 });

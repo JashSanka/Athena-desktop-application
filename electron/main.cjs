@@ -1,5 +1,13 @@
 const { app, BrowserWindow, session, ipcMain } = require('electron');
 const path = require('path');
+const {
+  getScreenshotsDir,
+  ensureScreenshotsDir,
+  saveScreenshotFile,
+  deleteScreenshotFile,
+  clearScreenshotsDir,
+  listScreenshots
+} = require('./screenshotStorage.cjs');
 
 let mainWindow = null;
 
@@ -79,7 +87,30 @@ ipcMain.handle('fullscreen:status', () => {
   return false;
 });
 
+// IPC Handlers for Screenshots (using fs module)
+ipcMain.handle('screenshot:save', async (_event, payload) => {
+  return await saveScreenshotFile(payload);
+});
+
+ipcMain.handle('screenshot:getDir', async () => {
+  return getScreenshotsDir();
+});
+
+ipcMain.handle('screenshot:delete', async (_event, filename) => {
+  return await deleteScreenshotFile(filename);
+});
+
+ipcMain.handle('screenshot:clear', async () => {
+  return await clearScreenshotsDir();
+});
+
+ipcMain.handle('screenshot:list', async () => {
+  return await listScreenshots();
+});
+
 app.whenReady().then(() => {
+  // Ensure screenshot folder exists in project structure
+  ensureScreenshotsDir();
   // Allow webcam permission requests inside Electron environment
   if (session.defaultSession) {
     session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {

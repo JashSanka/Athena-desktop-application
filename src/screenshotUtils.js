@@ -4,7 +4,7 @@
  * in-memory Blob management, and lifecycle cleanup.
  */
 
-export const DEFAULT_SCREENSHOT_INTERVAL_SECONDS = 30;
+export const DEFAULT_SCREENSHOT_INTERVAL_SECONDS = 5;
 
 /**
  * Formats a Date or timestamp into a readable HH:MM:SS string.
@@ -132,16 +132,19 @@ export async function captureVideoFrameToBlob(videoElement, mimeType = 'image/jp
 export function createScreenshotRecord(blob) {
   const timestamp = Date.now();
   const id = `snap_${timestamp}_${Math.random().toString(36).slice(2, 8)}`;
+  const filename = `${id}.jpg`;
   const objectUrl = typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function'
     ? URL.createObjectURL(blob)
     : '';
 
   return {
     id,
+    filename,
     blob,
     objectUrl,
     timestamp,
-    displayTime: formatTimestamp(timestamp)
+    displayTime: formatTimestamp(timestamp),
+    savedPath: null
   };
 }
 
@@ -170,6 +173,51 @@ export function revokeAllScreenshotUrls(screenshots) {
 }
 
 /**
+ * Saves a screenshot record to the screenshots directory using electronAPI or custom storageApi.
+ * @param {Object} record - Screenshot record created by createScreenshotRecord
+ * @param {Object} [storageApi] - Optional storage API (defaults to window.electronAPI)
+ * @returns {Promise<{ success: boolean, filePath?: string, filename?: string, error?: string }>}
+ */
+export async function saveScreenshotRecord(record, storageApi) {
+  const api = storageApi || (typeof window !== 'undefined' ? window.electronAPI : null);
+  if (!record || !record.blob) {
+    return { success: false, error: 'Screenshot record or blob is missing.' };
+  }
+  if (!api || typeof api.saveScreenshot !== 'function') {
+    return { success: false, error: 'Storage API saveScreenshot is not available.' };
+  }
+
+  try {
+    let data;
+    if (typeof record.blob.arrayBuffer === 'function') {
+      const arrayBuffer = await record.blob.arrayBuffer();
+      data = new Uint8Array(arrayBuffer);
+    } else if (typeof FileReader !== 'undefined') {
+      data = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(record.blob);
+      });
+    } else {
+      throw new Error('No method available to serialize blob data.');
+    }
+
+    const result = await api.saveScreenshot({
+      data,
+      filename: record.filename
+    });
+
+    if (result && result.success) {
+      record.savedPath = result.filePath;
+    }
+    return result;
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+/**
  * Controller class to manage periodic capture lifecycle without overlapping executions
  * and without crashing or resetting the examination timer.
  */
@@ -180,6 +228,8 @@ export class ScreenshotCaptureController {
     this.isCapturing = false;
     this.status = 'idle'; // 'idle' | 'active' | 'capturing' | 'stopped' | 'error'
     this.lastError = null;
+    this.storageApi = options.storageApi || null;
+    this.autoSave = options.autoSave ?? true;
     this.onCapture = options.onCapture || (() => {});
     this.onError = options.onError || (() => {});
     this.onStatusChange = options.onStatusChange || (() => {});
@@ -238,6 +288,16 @@ export class ScreenshotCaptureController {
 
       const blob = await captureVideoFrameToBlob(videoEl);
       const record = createScreenshotRecord(blob);
+
+      if (this.autoSave) {
+        const api = this.storageApi || (typeof window !== 'undefined' ? window.electronAPI : null);
+        if (api && typeof api.saveScreenshot === 'function') {
+          await saveScreenshotRecord(record, api).catch((err) => {
+            console.warn('Auto-save screenshot failed:', err);
+          });
+        }
+      }
+
       this.setStatus('active');
       this.onCapture(record);
       return record;

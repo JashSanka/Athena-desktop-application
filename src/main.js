@@ -10,6 +10,7 @@ import {
 import {
   DEFAULT_SCREENSHOT_INTERVAL_SECONDS,
   ScreenshotCaptureController,
+  saveScreenshotRecord,
   revokeScreenshotUrl,
   revokeAllScreenshotUrls
 } from './screenshotUtils.js';
@@ -46,6 +47,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const screenshotController = new ScreenshotCaptureController({
     intervalSeconds: state.screenshotIntervalSeconds,
+    storageApi: typeof window !== 'undefined' ? window.electronAPI : null,
+    autoSave: true,
     getIsExamActive: () => state.testStarted && !state.isCompleted,
     getConsent: () => state.screenshotConsent,
     getStream: () => activeStream,
@@ -59,8 +62,15 @@ document.addEventListener('DOMContentLoaded', () => {
         statusPillEl.innerHTML = `<span class="status-dot ${meta.dotClass}"></span>${meta.label}`;
       }
     },
-    onCapture: (record) => {
+    onCapture: async (record) => {
       state.screenshots.push(record);
+      if (!record.savedPath && window.electronAPI?.saveScreenshot) {
+        try {
+          await saveScreenshotRecord(record, window.electronAPI);
+        } catch (err) {
+          console.warn('Screenshot save fallback error:', err);
+        }
+      }
       render();
     },
     onError: (err) => {
@@ -702,13 +712,13 @@ document.addEventListener('DOMContentLoaded', () => {
                   </span>
                 </div>
                 <p class="consent-notice-description">
-                  Periodic still screenshots will be captured from your active camera stream approximately every 30 seconds during the test.
+                  Periodic still screenshots will be captured from your active camera stream every 5 seconds during the test.
                 </p>
               </div>
             </div>
             <div class="consent-notice-details">
               <ul class="consent-notice-list">
-                <li>Captured images are stored temporarily in browser memory only and are never uploaded or permanently saved.</li>
+                <li>Captured images are stored locally in the screenshots directory during the exam session.</li>
                 <li>No audio or continuous video recording is performed.</li>
                 <li>Captures run strictly while the exam is in progress and stop immediately upon completion.</li>
               </ul>
@@ -859,6 +869,7 @@ document.addEventListener('DOMContentLoaded', () => {
             <img src="${shot.objectUrl}" alt="Webcam Screenshot Preview at ${shot.displayTime}" class="screenshot-preview-full-img" />
           </div>
           <div class="screenshot-preview-modal-footer">
+            <span class="screenshot-preview-path" style="font-size: 0.8rem; color: #64748b; margin-right: auto;">screenshots/${shot.filename}</span>
             <button type="button" class="btn btn-secondary" id="closePreviewBtnBottom">Close</button>
             <button type="button" class="btn btn-danger" id="deletePreviewedShotBtn" data-shot-id="${shot.id}">Delete</button>
           </div>
@@ -1036,11 +1047,18 @@ document.addEventListener('DOMContentLoaded', () => {
     `;
   }
 
-  function deleteSingleScreenshot(shotId) {
+  async function deleteSingleScreenshot(shotId) {
     const idx = state.screenshots.findIndex((s) => s.id === shotId);
     if (idx !== -1) {
       const [removed] = state.screenshots.splice(idx, 1);
       revokeScreenshotUrl(removed);
+      if (window.electronAPI && typeof window.electronAPI.deleteScreenshot === 'function' && removed.filename) {
+        try {
+          await window.electronAPI.deleteScreenshot(removed.filename);
+        } catch (err) {
+          console.warn('Failed to delete screenshot file from disk:', err);
+        }
+      }
       if (state.activeScreenshotPreview === shotId) {
         state.activeScreenshotPreview = null;
       }
@@ -1048,10 +1066,17 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  function clearAllScreenshots() {
+  async function clearAllScreenshots() {
     revokeAllScreenshotUrls(state.screenshots);
     state.screenshots = [];
     state.activeScreenshotPreview = null;
+    if (window.electronAPI && typeof window.electronAPI.clearScreenshots === 'function') {
+      try {
+        await window.electronAPI.clearScreenshots();
+      } catch (err) {
+        console.warn('Failed to clear screenshots from disk:', err);
+      }
+    }
     render();
   }
 

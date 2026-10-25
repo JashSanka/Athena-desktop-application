@@ -12,5 +12,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   removeFullscreenListener: () => {
     ipcRenderer.removeAllListeners('fullscreen:changed');
-  }
+  },
+
+  // Screenshot storage APIs (using fs module in main process)
+  saveScreenshot: (payload) => ipcRenderer.invoke('screenshot:save', payload),
+  getScreenshotsDir: () => ipcRenderer.invoke('screenshot:getDir'),
+  deleteScreenshot: (filename) => ipcRenderer.invoke('screenshot:delete', filename),
+  clearScreenshots: () => ipcRenderer.invoke('screenshot:clear'),
+  listScreenshots: () => ipcRenderer.invoke('screenshot:list')
 });

@@ -118,6 +118,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (state.isCompleted) return; // Ensure automatic completion happens only once
     state.isCompleted = true;
     state.completionReason = 'timeout';
+    screenshotController.stop();
+    state.screenshotStatus = 'stopped';
     stopExamTimer();
     stopCamera();
     exitFullscreen();
@@ -128,6 +130,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (state.isCompleted) return;
     state.isCompleted = true;
     state.completionReason = 'manual';
+    screenshotController.stop();
+    state.screenshotStatus = 'stopped';
     stopExamTimer();
     stopCamera();
     exitFullscreen();
@@ -135,6 +139,8 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function onTrackEnded() {
+    screenshotController.stop();
+    state.screenshotStatus = 'stopped';
     stopCamera();
     state.cameraState = 'unavailable';
     state.cameraErrorMessage = 'The webcam stream was disconnected by the system.';
@@ -192,6 +198,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function stopCamera() {
+    screenshotController.stop();
     if (activeStream) {
       activeStream.getVideoTracks().forEach((track) => {
         track.removeEventListener('ended', onTrackEnded);
@@ -203,12 +210,16 @@ document.addEventListener('DOMContentLoaded', () => {
     state.cameraErrorMessage = '';
   }
 
-  // Ensure webcam tracks and exam timers are released if page/exam flow is abandoned or unloaded
+  // Ensure webcam tracks, screenshots, and exam timers are released if page/exam flow is abandoned or unloaded
   window.addEventListener('beforeunload', () => {
+    screenshotController.stop();
+    clearAllScreenshots();
     stopCamera();
     stopExamTimer();
   });
   window.addEventListener('pagehide', () => {
+    screenshotController.stop();
+    clearAllScreenshots();
     stopCamera();
     stopExamTimer();
   });
@@ -1113,6 +1124,32 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
           </div>
 
+          <!-- Proctoring Session Summary & Cleanup -->
+          <div class="results-proctoring-summary">
+            <div class="results-proctoring-header">
+              <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path>
+              </svg>
+              <span>Proctoring & Integrity Summary</span>
+            </div>
+            <p class="results-proctoring-text">
+              Webcam monitoring and periodic screenshot captures stopped automatically when the examination ended.
+              A total of <strong>${state.screenshots.length}</strong> temporary screenshot(s) were captured locally during the session.
+            </p>
+            <div class="results-proctoring-actions">
+              <span class="proctoring-cleanup-note">
+                Screenshots were stored in temporary browser memory only and never uploaded.
+              </span>
+              ${state.screenshots.length > 0 ? `
+                <button type="button" class="btn btn-secondary btn-purge-results" id="purgeResultsScreenshotsBtn">
+                  Purge In-Memory Screenshots (${state.screenshots.length})
+                </button>
+              ` : `
+                <span class="proctoring-purged-badge">✓ In-memory screenshots purged</span>
+              `}
+            </div>
+          </div>
+
           <p class="results-disclaimer">
             This is a local demo examination. Scores are calculated client-side only and are not transmitted or stored anywhere.
           </p>
@@ -1197,6 +1234,12 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     } else {
       if (state.isCompleted) {
+        const purgeBtn = document.getElementById('purgeResultsScreenshotsBtn');
+        if (purgeBtn) {
+          purgeBtn.addEventListener('click', () => {
+            clearAllScreenshots();
+          });
+        }
         return; // Stop further question interaction; results view has no interactive exam controls
       }
 

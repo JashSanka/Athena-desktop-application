@@ -7,6 +7,10 @@ import {
   calculateRemainingSeconds,
   calculateScore
 } from './examUtils.js';
+import {
+  DEFAULT_SCREENSHOT_INTERVAL_SECONDS,
+  ScreenshotCaptureController
+} from './screenshotUtils.js';
 
 document.addEventListener('DOMContentLoaded', () => {
   const app = document.getElementById('app');
@@ -21,6 +25,9 @@ document.addEventListener('DOMContentLoaded', () => {
     fullscreenSupported: true,
     fullscreenErrorMessage: '',
     screenshotConsent: false,
+    screenshotIntervalSeconds: DEFAULT_SCREENSHOT_INTERVAL_SECONDS,
+    screenshotStatus: 'idle',
+    screenshots: [],
     testStarted: false,
     currentQuestionIndex: 0,
     selectedAnswers: {},
@@ -33,6 +40,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
   let activeStream = null;
   let timerInterval = null;
+
+  const screenshotController = new ScreenshotCaptureController({
+    intervalSeconds: state.screenshotIntervalSeconds,
+    getIsExamActive: () => state.testStarted && !state.isCompleted,
+    getConsent: () => state.screenshotConsent,
+    getStream: () => activeStream,
+    getVideoElement: () => document.getElementById('cameraVideo'),
+    onStatusChange: (status) => {
+      state.screenshotStatus = status;
+    },
+    onCapture: (record) => {
+      state.screenshots.push(record);
+    },
+    onError: (err) => {
+      console.warn('Webcam screenshot non-fatal capture error:', err);
+    }
+  });
 
   function stopExamTimer() {
     if (timerInterval) {
@@ -1005,7 +1029,14 @@ document.addEventListener('DOMContentLoaded', () => {
             state.isCompleted = false;
             state.completionReason = null;
             startExamTimer();
+            screenshotController.start();
             render();
+            // Trigger initial screenshot after video starts playing
+            setTimeout(() => {
+              if (state.testStarted && !state.isCompleted) {
+                screenshotController.executeSingleCapture();
+              }
+            }, 1000);
           }
         });
       }

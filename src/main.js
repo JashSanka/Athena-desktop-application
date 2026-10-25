@@ -20,6 +20,7 @@ document.addEventListener('DOMContentLoaded', () => {
     fullscreenActive: false,
     fullscreenSupported: true,
     fullscreenErrorMessage: '',
+    screenshotConsent: false,
     testStarted: false,
     currentQuestionIndex: 0,
     selectedAnswers: {},
@@ -503,34 +504,33 @@ document.addEventListener('DOMContentLoaded', () => {
     return isActualFullscreenActive();
   }
 
+  function isConsentGiven() {
+    return Boolean(state.screenshotConsent);
+  }
+
   function isReadyToStart() {
-    return isCameraReady() && isFullscreenReady();
+    return isCameraReady() && isFullscreenReady() && isConsentGiven();
   }
 
   function getReadinessHelperText() {
     const cameraOk = isCameraReady();
     const fullscreenOk = isFullscreenReady();
+    const consentOk = isConsentGiven();
 
-    if (cameraOk && fullscreenOk) {
+    if (cameraOk && fullscreenOk && consentOk) {
       return {
         text: 'All requirements satisfied. Test is ready to start.',
         className: 'ready'
       };
     }
-    if (!cameraOk && !fullscreenOk) {
-      return {
-        text: 'Both active camera feed and fullscreen mode are required to begin.',
-        className: 'warning'
-      };
-    }
-    if (!cameraOk) {
-      return {
-        text: 'Webcam permission and live feed required before starting.',
-        className: 'warning'
-      };
-    }
+
+    const missing = [];
+    if (!cameraOk) missing.push('active webcam feed');
+    if (!fullscreenOk) missing.push('fullscreen mode');
+    if (!consentOk) missing.push('screenshot consent acknowledgement');
+
     return {
-      text: 'Fullscreen mode must be active to begin the assessment.',
+      text: `Required to begin: Please provide ${missing.join(', ')}.`,
       className: 'warning'
     };
   }
@@ -632,7 +632,49 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
           </div>
 
-          <!-- 3. Start Test Button -->
+          <!-- 3. Periodic Screenshot Notice & Explicit Consent -->
+          <div class="consent-card" id="screenshotConsentCard">
+            <div class="consent-card-header">
+              <div class="consent-icon-wrap" aria-hidden="true">
+                <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path>
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                </svg>
+              </div>
+              <div class="consent-meta">
+                <div class="consent-title-row">
+                  <h2 class="permission-name">Webcam Screenshot Consent</h2>
+                  <span class="status-pill ${state.screenshotConsent ? 'status-pill--ready' : 'status-pill--pending'}" id="consentStatusBadge">
+                    <span class="status-dot ${state.screenshotConsent ? 'status-dot--ready' : 'status-dot--pending'}"></span>
+                    ${state.screenshotConsent ? 'Acknowledged' : 'Consent Required'}
+                  </span>
+                </div>
+                <p class="consent-notice-description">
+                  Periodic still screenshots will be captured from your active camera stream approximately every 30 seconds during the test.
+                </p>
+              </div>
+            </div>
+            <div class="consent-notice-details">
+              <ul class="consent-notice-list">
+                <li>Captured images are stored temporarily in browser memory only and are never uploaded or permanently saved.</li>
+                <li>No audio or continuous video recording is performed.</li>
+                <li>Captures run strictly while the exam is in progress and stop immediately upon completion.</li>
+              </ul>
+              <label class="consent-checkbox-row" for="screenshotConsentCheckbox">
+                <input
+                  type="checkbox"
+                  id="screenshotConsentCheckbox"
+                  class="consent-checkbox"
+                  ${state.screenshotConsent ? 'checked' : ''}
+                />
+                <span class="consent-checkbox-text">
+                  I understand and explicitly agree to periodic webcam screenshot capture during this examination.
+                </span>
+              </label>
+            </div>
+          </div>
+
+          <!-- 4. Start Test Button -->
           <div class="start-section">
             <button
               type="button"
@@ -944,6 +986,14 @@ document.addEventListener('DOMContentLoaded', () => {
       if (toggleFullscreenBtn) {
         toggleFullscreenBtn.addEventListener('click', () => {
           toggleFullscreen();
+        });
+      }
+
+      const consentCheckbox = document.getElementById('screenshotConsentCheckbox');
+      if (consentCheckbox) {
+        consentCheckbox.addEventListener('change', (e) => {
+          state.screenshotConsent = e.target.checked;
+          render();
         });
       }
 

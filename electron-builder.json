@@ -1,0 +1,55 @@
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "com.athena.proctoring",
+  "productName": "Athena Proctoring",
+  "copyright": "Copyright © 2026 Athena Proctoring",
+  "directories": {
+    "output": "release"
+  },
+  "files": [
+    "dist/**/*",
+    "electron/**/*",
+    "package.json"
+  ],
+  "mac": {
+    "target": [
+      {
+        "target": "dmg",
+        "arch": ["arm64"]
+      }
+    ],
+    "category": "public.app-category.education",
+    "icon": "build/icon.icns",
+    "entitlements": "build/entitlements.mac.plist",
+    "entitlementsInherit": "build/entitlements.mac.inherit.plist",
+    "hardenedRuntime": false,
+    "gatekeeperAssess": false,
+    "extendInfo": {
+      "NSCameraUsageDescription": "Athena Proctoring requires access to your camera for identity verification and continuous test invigilation.",
+      "NSMicrophoneUsageDescription": "Athena Proctoring requires microphone access to monitor ambient audio during examinations.",
+      "NSDesktopFolderUsageDescription": "Athena Proctoring saves exam session logs and screenshots.",
+      "NSDocumentsFolderUsageDescription": "Athena Proctoring saves exam session logs and screenshots."
+    }
+  },
+  "dmg": {
+    "title": "${productName} ${version}",
+    "icon": "build/icon.icns",
+    "contents": [
+      {
+        "x": 130,
+        "y": 220,
+        "type": "file"
+      },
+      {
+        "x": 410,
+        "y": 220,
+        "type": "link",
+        "path": "/Applications"
+      }
+    ],
+    "window": {
+      "width": 540,
+      "height": 380
+    }
+  }
+}

@@ -11,6 +11,8 @@ dist-ssr/
 # Electron build artifacts
 out/
 dist-electron/
+release/
+build/icon.iconset/
 
 # Logs
 npm-debug.log*

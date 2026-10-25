@@ -6,15 +6,30 @@
 const fs = require('fs');
 const path = require('path');
 
+let electronApp = null;
+try {
+  const electron = require('electron');
+  electronApp = electron.app;
+} catch {
+  electronApp = null;
+}
+
 /**
  * Resolves the screenshots directory path within the project folder structure.
- * Default location: <projectRoot>/screenshots
+ * Default location in dev: <projectRoot>/screenshots
+ * Default location when packaged: <userData>/screenshots
  * @param {string} [customDir]
  * @returns {string} Absolute path to screenshots directory
  */
 function getScreenshotsDir(customDir) {
   if (customDir) {
     return path.resolve(customDir);
+  }
+  if (process.env.ATHENA_SCREENSHOTS_DIR) {
+    return path.resolve(process.env.ATHENA_SCREENSHOTS_DIR);
+  }
+  if (electronApp && typeof electronApp.isPackaged === 'boolean' && electronApp.isPackaged) {
+    return path.join(electronApp.getPath('userData'), 'screenshots');
   }
   // __dirname is <projectRoot>/electron
   return path.resolve(__dirname, '..', 'screenshots');

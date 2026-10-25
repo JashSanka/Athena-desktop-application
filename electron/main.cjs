@@ -1,4 +1,4 @@
-const { app, BrowserWindow, session, ipcMain } = require('electron');
+const { app, BrowserWindow, session, ipcMain, Menu, systemPreferences } = require('electron');
 const path = require('path');
 const {
   getScreenshotsDir,
@@ -11,12 +11,77 @@ const {
 
 let mainWindow = null;
 
+function setupAppMenu() {
+  const isMac = process.platform === 'darwin';
+  const template = [
+    ...(isMac ? [{
+      label: app.name,
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' }
+      ]
+    }] : []),
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'selectAll' }
+      ]
+    },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload' },
+        { role: 'forceReload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' }
+      ]
+    },
+    {
+      label: 'Window',
+      submenu: [
+        { role: 'minimize' },
+        { role: 'zoom' },
+        ...(isMac ? [
+          { type: 'separator' },
+          { role: 'front' },
+          { type: 'separator' },
+          { role: 'window' }
+        ] : [
+          { role: 'close' }
+        ])
+      ]
+    }
+  ];
+
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 850,
     minWidth: 800,
     minHeight: 600,
+    title: 'Athena - Online Examination Proctoring',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -26,7 +91,7 @@ function createWindow() {
 
   const devUrl = process.env.VITE_DEV_SERVER_URL || 'http://localhost:5173';
 
-  if (process.env.NODE_ENV === 'development') {
+  if (!app.isPackaged && process.env.NODE_ENV === 'development') {
     mainWindow.loadURL(devUrl);
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
@@ -108,9 +173,24 @@ ipcMain.handle('screenshot:list', async () => {
   return await listScreenshots();
 });
 
-app.whenReady().then(() => {
-  // Ensure screenshot folder exists in project structure
+app.whenReady().then(async () => {
+  setupAppMenu();
+
+  // Ensure screenshot folder exists in target location (userData or project folder)
   ensureScreenshotsDir();
+
+  // Request macOS system-level media permission proactively if supported
+  if (process.platform === 'darwin' && systemPreferences && systemPreferences.askForMediaAccess) {
+    try {
+      const cameraStatus = systemPreferences.getMediaAccessStatus ? systemPreferences.getMediaAccessStatus('camera') : null;
+      if (cameraStatus !== 'granted') {
+        await systemPreferences.askForMediaAccess('camera');
+      }
+    } catch {
+      // Ignore if running in unsupported or non-GUI test environment
+    }
+  }
+
   // Allow webcam permission requests inside Electron environment
   if (session.defaultSession) {
     session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {

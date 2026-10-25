@@ -12,7 +12,12 @@
     "lint": "eslint .",
     "test": "node --test tests/**/*.test.js",
     "electron": "electron .",
-    "electron:dev": "NODE_ENV=development vite & sleep 2 && NODE_ENV=development electron ."
+    "electron:dev": "NODE_ENV=development vite & sleep 2 && NODE_ENV=development electron .",
+    "pack": "vite build && electron-builder --dir",
+    "dist": "vite build && electron-builder",
+    "dist:dmg": "vite build && electron-builder --mac dmg",
+    "dist:dmg:arm64": "vite build && electron-builder --mac dmg --arm64",
+    "dist:dmg:universal": "vite build && electron-builder --mac dmg --universal"
   },
   "repository": {
     "type": "git",
@@ -32,6 +37,7 @@
   },
   "devDependencies": {
     "electron": "^33.4.11",
+    "electron-builder": "^26.18.0",
     "eslint": "^10.10.0"
   }
 }
